@@ -343,6 +343,11 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .aisrow input{width:20px;height:20px;accent-color:var(--accent)}
 .aislist li.on{border-color:var(--accent)}
 #aisBtn{font-size:.8rem}
+
+/* ---- start view zoom toggle ---- */
+.a-free{position:relative}
+.stzoom{position:absolute;top:4px;right:4px;pointer-events:auto;min-height:36px;padding:4px 10px;border:1px solid var(--line);border-radius:6px;background:#000;color:var(--muted);font-family:var(--num);font-weight:700;font-size:.85rem;letter-spacing:.04em}
+.stzoom[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 </head>
@@ -471,7 +476,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
   </section>
   <section class="startview" id="startView" hidden aria-label="Start line">
     <div class="a-plot" id="stBox"><canvas id="stmap" aria-label="Start line plot"></canvas></div>
-    <div class="a-free" id="stFree" aria-hidden="true"></div>
+    <div class="a-free" id="stFree"><button class="stzoom" id="stZoom" aria-pressed="true">Auto zoom</button></div>
     <div class="tile a-cd"><div class="blk" id="ts-cd"><div class="lbl">START</div><div class="val" id="s-cd">--:--</div><div class="sub" id="s-cdsub">set the timer</div></div></div>
     <div class="tile a-burn"><div class="blk" id="ts-burn"><div class="lbl">TIME TO BURN</div><div class="val" id="s-burn">--</div><div class="sub" id="s-burnsub">--</div></div></div>
     <div class="tile a-dist"><div class="blk" id="ts-dist"><div class="lbl">TO LINE <small>m</small></div><div class="val" id="s-dist">--</div><div class="sub" id="s-distsub">ping both ends</div></div></div>
@@ -1878,6 +1883,7 @@ function renderStart(now){
     $("s-biassub").innerHTML="<b>"+(si.fav==="pin"?"pin":"boat end")+"</b> by "+Math.round(si.adv*1852)+" m";
   }
 }
+var stAuto=load("stauto",true),stView=null;
 function drawStart(){
   var c=$("stmap"),ctx=c.getContext("2d"),W=c.width,H=c.height,d=window.devicePixelRatio||1;
   var cs=getComputedStyle(document.documentElement),col=function(n){return cs.getPropertyValue(n).trim();};
@@ -1887,7 +1893,22 @@ function drawStart(){
   if(!(FW>40&&FH>40)){FX=0;FY=0;FW=W;FH=H;}
   if(!si){ctx.fillStyle=col("--muted");ctx.font=(14*d)+"px Barlow, sans-serif";ctx.textAlign="center";ctx.fillText("Ping the pin and the boat end",FX+FW/2,FY+FH/2-8*d);ctx.fillText("to draw the line.",FX+FW/2,FY+FH/2+10*d);return;}
   var pts=[[0,0],si.P,si.B],x0=Math.min(0,si.P[0],si.B[0]),x1=Math.max(0,si.P[0],si.B[0]),y0=Math.min(0,si.P[1],si.B[1]),y1=Math.max(0,si.P[1],si.B[1]);
-  var s=Math.min(FW*0.8/Math.max(x1-x0,0.02),FH*0.62/Math.max(y1-y0,0.02)),cx=(x0+x1)/2,cy=(y0+y1)/2;
+  // whole line and boat
+  var sF=Math.min(FW*0.8/Math.max(x1-x0,0.02),FH*0.62/Math.max(y1-y0,0.02)),cxF=(x0+x1)/2,cyF=(y0+y1)/2;
+  // auto zoom: frame the boat and the stretch of line ahead of it, tighter as it gets closer
+  var tgt={s:sF,cx:cxF,cy:cyF};
+  if(stAuto){
+    var tf=Math.max(0,Math.min(1,si.t)),Fp=[si.P[0]+(si.B[0]-si.P[0])*tf,si.P[1]+(si.B[1]-si.P[1])*tf];
+    var rz=cdRem(Date.now()),look=fin(rz)?Math.max(8,Math.min(30,rz>0?rz:15)):30;
+    var dm=Math.hypot(Fp[0],Fp[1]),run=fin(S.sog)?S.sog*look/3600:0;
+    var span=Math.max(dm*2.6,run*1.6,60/1852);
+    var sZ=Math.min(FW*0.85/span,FH*0.72/span);
+    if(sZ>sF)tgt={s:sZ,cx:Fp[0]/2,cy:Fp[1]/2};
+  }
+  // ease towards the target so the view glides instead of jumping
+  if(!stView||stView.line!==si.len){stView={s:tgt.s,cx:tgt.cx,cy:tgt.cy,line:si.len};}
+  else{var k=0.18;stView.s=Math.exp(Math.log(stView.s)+(Math.log(tgt.s)-Math.log(stView.s))*k);stView.cx+=(tgt.cx-stView.cx)*k;stView.cy+=(tgt.cy-stView.cy)*k;}
+  var s=stView.s,cx=stView.cx,cy=stView.cy;
   function sc(p){return [FX+FW/2+(p[0]-cx)*s,FY+FH/2-(p[1]-cy)*s];}
   var P=sc(si.P),B=sc(si.B),vx=B[0]-P[0],vy=B[1]-P[1],vl=Math.hypot(vx,vy),ex=vx/vl*4000*d,ey=vy/vl*4000*d;
   // course side shaded
@@ -1959,6 +1980,13 @@ function drawStart(){
   if(fin(S.twd)){ctx.save();ctx.translate(wx,wy);ctx.rotate((S.twd+180)*D2R);ctx.strokeStyle=col("--accent");ctx.fillStyle=col("--accent");ctx.lineWidth=3*d;
     ctx.beginPath();ctx.moveTo(0,20*d);ctx.lineTo(0,-12*d);ctx.stroke();ctx.beginPath();ctx.moveTo(0,-20*d);ctx.lineTo(7*d,-9*d);ctx.lineTo(-7*d,-9*d);ctx.closePath();ctx.fill();ctx.restore();}
   ctx.fillStyle=col("--muted");ctx.font="600 "+(12*d)+"px 'Barlow Condensed', sans-serif";ctx.textAlign="center";
+  // metre scale bar, bottom left of the free area
+  var steps=[5,10,20,25,50,100,200,250,500,1000],stp=steps[steps.length-1];
+  for(var si2=0;si2<steps.length;si2++){if(steps[si2]/1852*s>=70*d){stp=steps[si2];break;}}
+  var bx=FX+10*d,by=FY+FH-14*d,bw=stp/1852*s;
+  ctx.strokeStyle=col("--ink");ctx.lineWidth=2*d;ctx.beginPath();ctx.moveTo(bx,by-5*d);ctx.lineTo(bx,by);ctx.lineTo(bx+bw,by);ctx.lineTo(bx+bw,by-5*d);ctx.stroke();
+  ctx.fillStyle=col("--ink");ctx.textAlign="left";ctx.font="600 "+(12*d)+"px 'Barlow Condensed', sans-serif";ctx.fillText(stp+" m",bx,by-8*d);
+  ctx.fillStyle=col("--muted");ctx.textAlign="center";
   ctx.fillText("line "+Math.round(si.len*1852)+" m"+(lineDemo?"  (demo)":""),FX+FW/2,FY+FH-8*d);
 }
 // at the gun: full-screen CLEAR START / OCS for 5 s, then the map with a small reminder for a minute
@@ -1985,6 +2013,8 @@ function checkGun(now){
   }
 }
 $("gunMsg").onclick=function(){if(gunEvt){gunEvt.t0=Math.min(gunEvt.t0,Date.now()-5000);}checkGun(Date.now());};
+$("stZoom").onclick=function(){stAuto=!stAuto;save("stauto",stAuto);$("stZoom").setAttribute("aria-pressed",stAuto);$("stZoom").textContent=stAuto?"Auto zoom":"Whole line";drawStart();};
+$("stZoom").setAttribute("aria-pressed",stAuto);$("stZoom").textContent=stAuto?"Auto zoom":"Whole line";
 $("pPin").onclick=function(){ping("pin");};
 $("demoBtn").onclick=function(){if(source==="sim"){demoLine();$("cdStop").textContent="Stop";}};
 $("pBoat").onclick=function(){ping("boat");};

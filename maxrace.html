@@ -331,6 +331,12 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .wgo{width:100%;min-height:52px;border:0;border-radius:8px;background:var(--accent);color:#000;font-family:var(--num);font-weight:700;font-size:1.3rem;letter-spacing:.04em}
 .wsim{border:0;background:transparent;color:var(--muted);text-decoration:underline;font-size:.85rem}
 @media (max-width:420px){.wrow{grid-template-columns:1fr 1fr}.wrow label:nth-child(2){grid-column:1 / -1;grid-row:1}}
+
+/* ---- boat selector ---- */
+.boatsel{background:transparent;border:1px solid var(--line);border-radius:6px;color:var(--ink);font-family:var(--num);font-weight:700;font-size:1.05rem;letter-spacing:.05em;padding:3px 6px;max-width:34vw;text-overflow:ellipsis}
+.boatsel option{background:#0A0D11;color:#F3F6F9;font-family:var(--ui);font-weight:500;letter-spacing:0}
+.mklist li.on{border-color:var(--stbd)}
+@media (max-width:640px){.boatsel{font-size:.9rem;max-width:30vw;padding:2px 3px}}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 </head>
@@ -338,6 +344,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 <div class="app">
   <header class="bar">
     <div class="mark" id="boatMark" hidden></div>
+    <select id="boatSel" class="boatsel" aria-label="Boat"></select>
     <span class="pill sim" id="srcPill"><i></i><span id="srcText">Simulator</span></span>
     <span class="pill hide-sm" id="polarPill" title="Polar in use"><span id="polarText">Demo polar</span></span>
     <div class="seg vsw" role="group" aria-label="View"><button id="vInst" aria-pressed="true">Dash</button><button id="vMap" aria-pressed="false">Map</button><button id="vStart" aria-pressed="false">Start</button></div>
@@ -572,9 +579,19 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
     <div class="row" style="justify-content:space-between"><h2>Settings</h2><button class="btn" id="closeDlg">Close</button></div>
 
     <div>
-      <h3>Boat name</h3>
-      <p>Optional. Shown at the top left of the screen. Leave empty to show nothing.</p>
-      <div class="row"><input type="text" id="boatIn" maxlength="24" placeholder="e.g. your boat" style="max-width:240px"></div>
+      <h3>Boats</h3>
+      <p>Each boat keeps its own polar, manoeuvre values, GPS-to-bow distance and data source (IP and port). Choose the boat at the top left of the screen and everything switches at once. Changes you make in these settings are saved to the boat in use.</p>
+      <ul class="mklist" id="profList"></ul>
+      <div class="row" style="margin-top:8px">
+        <label>Name of this boat <input type="text" id="boatIn" maxlength="24" placeholder="e.g. CLOUDY 7" style="max-width:200px"></label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn primary" id="profNew">New boat</button>
+        <button class="btn" id="profDup">Duplicate this boat</button>
+        <button class="btn" id="profExport">Export boats</button>
+        <label class="btn" for="profImport">Import boats</label><input type="file" id="profImport" accept=".json" hidden>
+      </div>
+      <div class="msg" id="profMsg"></div>
     </div>
 
     <div>
@@ -673,9 +690,10 @@ function wrap360(a){return ((a%360)+360)%360;}
 function wrap180(a){a=wrap360(a);return a>180?a-360:a;}
 function $(id){return document.getElementById(id);}
 var SP="maxrace:",OLD=["racedash:","c7dash:"];
-function save(k,v){try{localStorage.setItem(SP+k,JSON.stringify(v));}catch(e){}}
+var PK={polar:1,manv:1,bow:1,nmea:1,skurl:1,src:1,boat:1};
+function save(k,v){try{localStorage.setItem(SP+k,JSON.stringify(v));}catch(e){}if(PK[k])profHook(k,v);}
 function load(k,d){try{var v=localStorage.getItem(SP+k);for(var i=0;v==null&&i<OLD.length;i++){v=localStorage.getItem(OLD[i]+k);if(v!=null)localStorage.setItem(SP+k,v);}return v==null?d:JSON.parse(v);}catch(e){return d;}}
-function forget(k){try{localStorage.removeItem(SP+k);OLD.forEach(function(p){localStorage.removeItem(p+k);});}catch(e){}}
+function forget(k){try{localStorage.removeItem(SP+k);OLD.forEach(function(p){localStorage.removeItem(p+k);});}catch(e){}if(PK[k])profHook(k,undefined);}
 function fin(x){return typeof x==="number"&&isFinite(x);}
 
 /* ---------- polar ---------- */
@@ -1940,7 +1958,7 @@ $("setBtn").onclick=function(){
 };
 $("closeDlg").onclick=function(){dlg.close();};
 var boatName=load("boat","");
-function applyBoat(){var m=$("boatMark");m.textContent=boatName;m.hidden=!boatName;document.title=boatName?boatName+" · MaxRace":"MaxRace";}
+function applyBoat(){$("boatMark").hidden=true;document.title=boatName?boatName+" · MaxRace":"MaxRace";if(typeof renderProfiles==="function")renderProfiles();}
 $("boatIn").oninput=function(e){boatName=e.target.value.trim().toUpperCase();save("boat",boatName);applyBoat();};
 applyBoat();
 $("btwIn").onchange=function(e){
@@ -1991,6 +2009,109 @@ $("polarFile").onchange=function(e){
 };
 $("polarReset").onclick=function(){setPolar(makeDemo());forget("polar");$("polarIn").value="";polarMsg("Using the demo polar.","ok");};
 setPolar(P);
+
+/* ---------- boat profiles ---------- */
+var profiles=null,activeId=null,applying=false;
+var PKEYS=["polar","manv","bow","nmea","skurl","src","boat"];
+function newId(){return "b"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
+function saveProfiles(){try{localStorage.setItem(SP+"profiles",JSON.stringify(profiles));localStorage.setItem(SP+"profile",JSON.stringify(activeId));}catch(e){}}
+function activeProf(){if(!profiles)return null;for(var i=0;i<profiles.length;i++)if(profiles[i].id===activeId)return profiles[i];return null;}
+function profHook(k,v){
+  if(applying)return;var p=activeProf();if(!p)return;
+  if(v===undefined)delete p.data[k];else p.data[k]=JSON.parse(JSON.stringify(v));
+  if(k==="boat"&&v)p.name=v;
+  saveProfiles();renderProfiles();
+}
+function srcText(d){
+  var s=d.src||"sim";
+  if(s==="nmea"&&d.nmea&&d.nmea.port)return (d.nmea.proto||"tcp").toUpperCase()+" "+(d.nmea.host||"*")+":"+d.nmea.port;
+  if(s==="sk"&&d.skurl)return "Signal K";
+  return "Simulator";
+}
+function profMsg(t,c){var m=$("profMsg");m.textContent=t;m.className="msg "+(c||"");}
+function renderProfiles(){
+  if(!profiles)return;
+  var sel=$("boatSel");
+  sel.innerHTML=profiles.map(function(p){return '<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>';}).join("")+
+    '<option disabled>──────────</option><option value="__new">New boat…</option><option value="__manage">Manage boats…</option>';
+  sel.value=activeId;
+  $("profList").innerHTML=profiles.map(function(p){
+    var on=p.id===activeId,d=p.data,pol=d.polar?(d.polar.name||"custom polar"):"demo polar";
+    return '<li'+(on?' class="on"':'')+'><b>'+esc(p.name)+'</b>'+
+      (on?'<span class="chip good">in use</span>':'<button class="btn" data-a="use" data-id="'+p.id+'">Use</button>')+
+      (profiles.length>1?'<button class="btn" data-a="del" data-id="'+p.id+'">Delete</button>':'')+
+      '<span>'+esc(pol)+' · '+esc(srcText(d))+' · turn '+((d.manv&&d.manv.rate)||8)+'°/s · bow '+(d.bow||0)+' m</span></li>';
+  }).join("");
+}
+function applyProfile(id){
+  var p=null;profiles.forEach(function(x){if(x.id===id)p=x;});if(!p)return;
+  activeId=id;saveProfiles();
+  var d=p.data;applying=true;
+  PKEYS.forEach(function(k){if(d[k]===undefined)forget(k);else save(k,d[k]);});
+  applying=false;
+  setPolar(d.polar||makeDemo());
+  manv=d.manv?JSON.parse(JSON.stringify(d.manv)):{rate:8,tack:6,luff:2};
+  bowOff=d.bow||0;boatName=d.boat||p.name;
+  var nm=d.nmea||{};$("nmProto").value=nm.proto||"tcp";$("nmHost").value=nm.host||"";$("nmPort").value=nm.port||"";$("skUrl").value=d.skurl||"";
+  $("mRate").value=manv.rate;$("mTack").value=manv.tack;$("mLuff").value=manv.luff;$("bowIn").value=bowOff;$("boatIn").value=boatName;
+  $("polarIn").value=d.polar?polarToText(d.polar):"";
+  applyBoat();
+  var s=d.src||"sim";
+  if(s==="nmea"&&nm.port){setSource("nmea");connectNM();}
+  else if(s==="sk"&&d.skurl){setSource("sk");connectSK(d.skurl);}
+  else setSource("sim");
+}
+function captureAll(){var d={};PKEYS.forEach(function(k){var v=load(k,undefined);if(v!==undefined&&v!==null)d[k]=v;});return d;}
+(function initProfiles(){
+  profiles=load("profiles",null);activeId=load("profile",null);
+  if(!profiles||!profiles.length){
+    profiles=[{id:newId(),name:boatName||"MY BOAT",data:captureAll()}];activeId=profiles[0].id;saveProfiles();
+  }
+  if(!activeProf()){activeId=profiles[0].id;saveProfiles();}
+  renderProfiles();
+})();
+$("boatSel").onchange=function(e){
+  var v=e.target.value;
+  if(v==="__new"||v==="__manage"){e.target.value=activeId;if(v==="__new")$("profNew").click();$("setBtn").click();return;}
+  if(v!==activeId)applyProfile(v);
+};
+$("profList").onclick=function(e){
+  var b=e.target.closest("button");if(!b)return;var id=b.getAttribute("data-id"),a=b.getAttribute("data-a");
+  if(a==="use"){applyProfile(id);profMsg("Switched to "+activeProf().name+".","ok");}
+  if(a==="del"){var p=profiles.filter(function(x){return x.id===id;})[0];if(!p||!confirm("Delete the boat "+p.name+"?"))return;
+    profiles=profiles.filter(function(x){return x.id!==id;});if(id===activeId)applyProfile(profiles[0].id);else{saveProfiles();renderProfiles();}}
+};
+function uniqueName(n){var names=profiles.map(function(p){return p.name;}),k=2,out=n;while(names.indexOf(out)>=0){out=n+" "+k;k++;}return out;}
+$("profNew").onclick=function(){
+  var name=uniqueName("NEW BOAT");profiles.push({id:newId(),name:name,data:{boat:name,src:"sim"}});
+  applyProfile(profiles[profiles.length-1].id);profMsg("New boat created with the demo polar and the simulator. Give it a name, then load its polar and enter its IP and port.","ok");
+  $("boatIn").focus();$("boatIn").select();
+};
+$("profDup").onclick=function(){
+  var p=activeProf();if(!p)return;var name=uniqueName(p.name+" COPY"),d=JSON.parse(JSON.stringify(p.data));d.boat=name;
+  profiles.push({id:newId(),name:name,data:d});applyProfile(profiles[profiles.length-1].id);profMsg("Copy created. Rename it and change what differs.","ok");
+  $("boatIn").focus();$("boatIn").select();
+};
+$("profExport").onclick=function(){
+  var blob=new Blob([JSON.stringify({maxrace:"boats",version:1,profiles:profiles},null,1)],{type:"application/json"});
+  var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="maxrace-boats.json";document.body.appendChild(a);a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},1000);profMsg("Exported "+profiles.length+" boat"+(profiles.length===1?"":"s")+" to maxrace-boats.json. Import that file on another computer or tablet.","ok");
+};
+$("profImport").onchange=function(e){
+  var f=e.target.files[0];if(!f)return;var r=new FileReader();
+  r.onload=function(){
+    try{
+      var j=JSON.parse(r.result),list=j.profiles||(j.data?[j]:null);
+      if(!list||!list.length)throw new Error("no boats in this file");
+      var n=0;list.forEach(function(p){if(!p||!p.data)return;var name=uniqueName(String(p.name||"BOAT").toUpperCase().slice(0,24));
+        var d=JSON.parse(JSON.stringify(p.data));d.boat=name;profiles.push({id:newId(),name:name,data:d});n++;});
+      saveProfiles();renderProfiles();profMsg("Imported "+n+" boat"+(n===1?"":"s")+". Choose one at the top left to use it.","ok");
+    }catch(err){profMsg("Could not read that file: "+err.message,"err");}
+    e.target.value="";
+  };
+  r.readAsText(f);
+};
+
 // inside the app: no bridge field, show the address for tablets, and reconnect to the last source on start
 if(LOCAL){
   $("nmBridgeRow").hidden=true;

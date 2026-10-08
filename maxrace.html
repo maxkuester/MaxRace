@@ -1,0 +1,1991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MaxRace</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=B612:wght@400;700&family=Oxanium:wght@600;700&family=Chakra+Petch:wght@600;700&family=Share+Tech+Mono&family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#000000; --face:#0A0D11; --ink:#F3F6F9; --muted:#93A1B0; --line:#1E252E;
+  --port:#FF4A40; --stbd:#2FD27A; --target:#F6B73C; --accent:#4FA3FF;
+  --num:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --ui:"Barlow","Helvetica Neue",Arial,sans-serif;
+  box-sizing:border-box;color-scheme:dark;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]):not([data-theme="night"]){--bg:#000000;--face:#0A0D11}}
+:root[data-theme="dark"]{--bg:#000000;--face:#0A0D11}
+:root[data-theme="night"]{
+  --bg:#000000; --face:#060000; --ink:#FF3A2C; --muted:#B0281E; --line:#2A0705;
+  --port:#FF3A2C; --stbd:#FF8A66; --target:#E0503F; --accent:#FF3A2C;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;background:#000;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:var(--ui);-webkit-font-smoothing:antialiased;overflow:hidden}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.app{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr);gap:3px;
+  padding:3px max(3px,env(safe-area-inset-right,0px)) 3px max(3px,env(safe-area-inset-left,0px))}
+
+.bar{display:flex;align-items:center;gap:6px;min-height:28px}
+.mark{font-family:var(--num);font-weight:700;font-size:1.1rem;letter-spacing:.06em;white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:.75rem;color:var(--muted);white-space:nowrap}
+.pill i{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+.pill.live i{background:var(--stbd)} .pill.sim i{background:var(--target)} .pill.err i{background:var(--port)}
+.spacer{flex:1}
+.btn{border:0;background:transparent;color:var(--muted);border-radius:5px;padding:5px 8px;font-weight:500;font-size:.8rem;white-space:nowrap}
+.btn:hover{color:var(--ink);background:var(--face)}
+.btn.primary{color:var(--ink)}
+
+.main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;min-height:0}
+.group{display:grid;grid-template-rows:auto repeat(3,minmax(0,1fr));gap:3px;min-height:0}
+.ghead{margin:1px 2px 0;font-family:var(--num);font-weight:700;letter-spacing:.14em;text-transform:uppercase;font-size:.8rem;line-height:1}
+.r2,.r3{display:grid;gap:3px;min-height:0}
+.r2{grid-template-columns:1fr 1fr}
+.r3{grid-template-columns:repeat(3,1fr)}
+
+/* a tile: label sits right on top of its number, both centred */
+.tile{background:var(--face);border-radius:6px;min-height:0;min-width:0;overflow:hidden}
+.blk{container-type:size;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2px 4px;min-width:0}
+.lbl{display:flex;align-items:baseline;gap:.3em;font-family:var(--num);font-weight:700;letter-spacing:.08em;color:var(--ink);line-height:1;
+  font-size:1rem;font-size:clamp(.8rem,15cqh,1.7rem);margin-bottom:.05em}
+.lbl small{font-size:.68em;font-weight:600;letter-spacing:.03em;color:var(--muted)}
+.val{font-family:var(--num);font-weight:600;line-height:.86;font-variant-numeric:tabular-nums;white-space:nowrap;letter-spacing:-.01em;
+  font-size:2.6rem;font-size:min(58cqh,48cqw)}
+.val.w{font-size:min(56cqh,34cqw)}
+.sub{display:flex;gap:.7em;align-items:baseline;font-family:var(--num);font-weight:600;letter-spacing:.03em;color:var(--muted);line-height:1.1;
+  font-size:.8rem;font-size:clamp(.66rem,9.5cqh,1.05rem);margin-top:.15em;white-space:nowrap}
+.sub b{color:var(--ink);font-weight:600;font-size:1.12em;font-variant-numeric:tabular-nums}
+.p{color:var(--port)} .s{color:var(--stbd)}
+.chip{font-weight:700}
+.chip.good{color:var(--stbd)} .chip.bad{color:var(--port)} .chip.neu{color:var(--muted)}
+
+/* BSP: target on the left, BSP on the right */
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.7fr)}
+.split .blk + .blk{border-left:1px solid var(--line)}
+.bsp .val{font-size:min(70cqh,50cqw)}
+.tgt .lbl,.tgt .val,.tgt .sub,.tgt .sub b{color:var(--target)}
+.tgt .val{font-size:min(56cqh,46cqw)}
+.meter{width:72%;height:3px;border-radius:2px;background:var(--line);position:relative;overflow:hidden;margin-top:3px}
+.meter i{position:absolute;inset:0 auto 0 0;background:var(--accent);width:0}
+.meter .mark100{position:absolute;top:0;bottom:0;width:2px;background:var(--muted);left:83.333%}
+
+/* TWD trace tile */
+.trace .blk{justify-content:flex-start;align-items:stretch;padding:4px 6px}
+.trace .lbl{justify-content:center}
+.trace svg{flex:1;width:100%;min-height:0;display:block;margin-top:2px}
+
+
+/* wind: tiles in two columns, TWD trace runs the full height on the right */
+.main{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,.26fr) minmax(0,.26fr)}
+.group.wind{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto repeat(3,minmax(0,1fr))}
+.main > .twdtr{grid-column:3;grid-row:1}
+.main > .twstr{grid-column:4;grid-row:1}
+.wind .ghead{grid-column:1 / -1}
+.navrow{grid-column:1 / -1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr) minmax(0,1fr) minmax(0,1fr);gap:3px;min-height:0}
+.hdg .val{font-size:min(70cqh,40cqw)}
+.hdg .lbl{font-size:clamp(.9rem,17cqh,1.9rem)}
+.sub.aws{font-size:clamp(.7rem,10cqh,1.1rem)}
+.blk:has(.aws) .val{font-size:min(50cqh,48cqw)}
+.group.boat{grid-template-rows:auto repeat(3,minmax(0,1fr))}
+.vmcrow{grid-template-columns:minmax(0,2.3fr) minmax(0,1fr)}
+.vmcrow .vmgt .val{font-size:min(60cqh,44cqw)}
+.vmgt{display:grid;grid-template-columns:minmax(0,.34fr) minmax(0,1fr)}
+.vmgt #t-vmg .val{font-size:min(60cqh,44cqw)}
+.hist{container-type:size;display:grid;grid-template-rows:repeat(4,1fr);border-right:1px solid var(--line);padding:4px 0}
+.hist div{display:flex;align-items:baseline;justify-content:center;gap:.35em;font-family:var(--num);line-height:1}
+.hist span{font-weight:700;color:var(--muted);font-size:clamp(.65rem,10cqh,1rem)}
+.hist b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums;font-size:clamp(.9rem,min(22cqh,30cqw),2rem)}
+.trace .blk{align-items:center;padding:4px 4px 3px}
+.trace .lbl{font-size:clamp(.8rem,2.6cqh,1.4rem)}
+.trace .sub{font-size:clamp(.66rem,2.4cqh,.95rem);margin:1px 0 3px}
+.trace svg{flex:1;width:100%;min-height:0;margin:0}
+.axis{width:100%;display:flex;justify-content:space-between;font-family:var(--num);font-weight:700;font-size:.72rem;color:var(--muted);padding:0 2px 2px;border-bottom:1px solid var(--line)}
+.sub.avg{margin-top:.25em;gap:.9em;font-size:clamp(.6rem,8cqh,.95rem)}
+.sub.avg b{font-size:1.05em}
+
+/* side colour only: red port, green starboard */
+.val.p{color:var(--port)} .val.s{color:var(--stbd)}
+
+/* BSP and VMG against target: <90% red, 90-99 yellow, 100-109 green, 110+ gold on green */
+:root{--pf-bad:#FF4A40;--pf-warn:#FFD23F;--pf-good:#2FD27A;--pf-gold:#FFC83D;--pf-goldbg:#0F3D24}
+:root[data-theme="night"]{--pf-bad:#FF3A2C;--pf-warn:#C9A12F;--pf-good:#2A9E5E;--pf-gold:#C9982E;--pf-goldbg:#0A2416}
+.bsp .val,#t-vmg .val{transition:color .4s}
+.tile{transition:background-color .4s}
+.bsp .val{font-size:min(72cqh,62cqw)}
+.tgtmode .val,.tgtmode .lbl,.tgtmode .lbl small,.tgtmode .sub,.tgtmode .sub b{color:var(--target)!important}
+.tile:has(.tgtmode){background:var(--face)!important;box-shadow:inset 0 0 0 2px var(--target)}
+@media (prefers-reduced-motion: no-preference){.tgtmode .val{animation:tgtin .25s ease-out}}
+@keyframes tgtin{from{opacity:.2}to{opacity:1}}
+
+/* settings */
+dialog{border:1px solid var(--line);border-radius:6px;background:var(--face);color:var(--ink);padding:0;width:min(600px,96vw);max-height:92vh}
+dialog::backdrop{background:rgba(0,0,0,.7)}
+.dlg{padding:14px 16px;display:grid;gap:16px;overflow:auto;max-height:92vh}
+.dlg h2{font-family:var(--num);font-weight:700;font-size:1.3rem;margin:0}
+.dlg h3{font-family:var(--num);font-weight:600;font-size:1.05rem;margin:0 0 4px}
+.dlg p{margin:0 0 8px;color:var(--muted);font-size:.82rem;line-height:1.45;max-width:70ch}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.row label{display:flex;gap:6px;align-items:center;font-size:.85rem;color:var(--muted)}
+.dlg .btn{border:1px solid var(--line);color:var(--ink)}
+.dlg .btn.primary{background:var(--accent);border-color:var(--accent);color:#000}
+.dlg input[type=text],.dlg textarea{width:100%;border:1px solid var(--line);border-radius:4px;background:#000;padding:7px}
+.dlg textarea{min-height:120px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.78rem}
+.msg{font-size:.8rem;min-height:1.2em}
+.msg.err{color:var(--port)} .msg.ok{color:var(--stbd)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+#digitSeg{flex-wrap:wrap}
+.seg button{border:0;background:transparent;padding:6px 12px}
+.seg button[aria-pressed="true"]{background:var(--accent);color:#000}
+
+/* phone / portrait: wind above, boat below, one screen */
+@media (orientation:portrait), (max-width:640px){
+  .main{grid-template-columns:minmax(0,1fr) minmax(0,.17fr) minmax(0,.17fr);grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:3px}
+  .main > .wind{grid-column:1;grid-row:1} .main > .group:not(.wind){grid-column:1;grid-row:2}
+  .main > .twdtr{grid-column:2;grid-row:1 / span 2}
+  .main > .twstr{grid-column:3;grid-row:1 / span 2}
+  .hide-sm{display:none}
+}
+
+/* ---- digits: B612, the typeface Airbus designed for cockpit displays;
+   1/7, 3/8, 5/6 and 0/8 are drawn to stay distinct at a glance ---- */
+:root{--digits:"B612","Atkinson Hyperlegible","Verdana",sans-serif}
+.val,.hist b,.sub b{font-family:var(--digits);font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.val{line-height:.92;font-size:min(68cqh,38cqw)}
+.bsp .val{font-size:min(80cqh,46cqw)}
+.hdg .val{font-size:min(76cqh,36cqw)}
+.blk:has(.aws) .val{font-size:min(56cqh,40cqw)}
+.vmgt #t-vmg .val,.vmcrow .vmgt .val{font-size:min(66cqh,36cqw)}
+.navrow .tile:not(.hdg) .val{font-size:min(62cqh,34cqw)}
+.hist b{font-size:clamp(.85rem,min(21cqh,26cqw),1.9rem)}
+.sub b{font-size:1em}
+/* labels step back so the digits get the height */
+.lbl{font-size:clamp(.72rem,12cqh,1.35rem);margin-bottom:.1em}
+.sub{font-size:clamp(.62rem,8.5cqh,.95rem)}
+.sub.aws{font-size:clamp(.66rem,9cqh,1rem)}
+.blk{padding:1px 4px}
+
+/* ---- labels out of the way: pinned in the corners, digits get the full height ---- */
+.blk{position:relative}
+.tile:not(.trace) .blk .lbl{position:absolute;top:4px;left:7px;margin:0;z-index:1}
+.tile:not(.trace) .blk .sub{position:absolute;bottom:3px;left:7px;right:7px;justify-content:center;margin:0}
+.tile:not(.trace) .blk .sub.aws{top:4px;bottom:auto;left:auto;right:7px;justify-content:flex-end}
+.val{line-height:1;font-size:min(80cqh,38cqw)}
+.bsp .val{font-size:min(86cqh,46cqw)}
+.hdg .val{font-size:min(84cqh,36cqw)}
+.blk:has(.aws) .val{font-size:min(76cqh,40cqw)}
+.vmgt #t-vmg .val,.vmcrow .vmgt .val{font-size:min(80cqh,36cqw)}
+.navrow .tile:not(.hdg) .val{font-size:min(78cqh,34cqw)}
+
+/* ---- digit typeface, switchable in Settings ---- */
+:root{--digits:"Oxanium","Chakra Petch","B612",sans-serif;--dw:700}
+:root[data-digits="chakra"]{--digits:"Chakra Petch","Oxanium",sans-serif;--dw:700}
+:root[data-digits="mono"]{--digits:"Share Tech Mono","Oxanium",monospace;--dw:400}
+:root[data-digits="b612"]{--digits:"B612","Verdana",sans-serif;--dw:700}
+.val,.hist b,.sub b{font-family:var(--digits);font-weight:var(--dw);letter-spacing:0}
+
+/* ---- view switch and map ---- */
+[hidden]{display:none!important}
+.vsw{margin-left:4px}
+.vsw button{padding:3px 10px;font-size:.8rem;color:var(--muted)}
+.vsw button[aria-pressed="true"]{color:#000}
+.mapview{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.5fr);gap:6px;min-height:0}
+.mapbox{position:relative;min-height:0}
+.mapbox canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.mapctl{position:absolute;top:8px;right:8px;display:flex;flex-direction:column;gap:6px}
+.mapctl .btn{min-width:40px;min-height:40px;background:#000;border:1px solid var(--line);color:var(--ink);font-family:var(--num);font-weight:700;font-size:1.1rem}
+.mapctl .btn[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+.mapnums{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:repeat(4,minmax(0,1fr));gap:3px;min-height:0}
+.mapnums .val{font-size:min(74cqh,40cqw)}
+.mapnums .bsp .val{font-size:min(80cqh,44cqw)}
+@media (orientation:portrait), (max-width:640px){
+  .mapview{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}
+  .mapnums{grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(2,clamp(60px,11vh,104px))}
+  .vsw button{padding:3px 7px}
+  #srcText{display:none}
+  .mark{display:none}
+}
+
+/* ---- start line view: full-screen plot, numbers overlaid on the sides ---- */
+.startview{position:relative;display:grid;gap:4px;min-height:0;padding:4px;
+  grid-template-columns:minmax(0,.28fr) minmax(0,.44fr) minmax(0,.28fr);
+  grid-template-rows:minmax(0,1.3fr) repeat(4,minmax(0,1fr)) auto;
+  grid-template-areas:"cd free dist" "burn free bias" "ttl free pin" "luff free boat" "tack free ." "ctl ctl ctl"}
+.a-luff{grid-area:luff}.a-tack{grid-area:tack}.a-pin{grid-area:pin}.a-boat{grid-area:boat}
+.a-cd{grid-area:cd}.a-burn{grid-area:burn}.a-dist{grid-area:dist}.a-ttl{grid-area:ttl}.a-bias{grid-area:bias}.a-ctl{grid-area:ctl}.a-free{grid-area:free;pointer-events:none}
+.a-plot{position:absolute;inset:0;border-radius:6px;background:var(--face);overflow:hidden;z-index:0}
+.a-plot canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.startview > .tile{position:relative;z-index:1;background:rgba(0,0,0,.72);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+.startview .val{font-size:min(74cqh,40cqw)}
+.startview .a-cd .val{font-size:min(84cqh,42cqw)}
+.blk.warn .val{color:var(--target)}
+.blk.hot .val,.blk.hot .sub{color:var(--port)}
+.tile:has(.blk.hot){box-shadow:inset 0 0 0 3px var(--port)}
+.blk.ok .val,.blk.ok .sub{color:var(--stbd)}
+.blk.red .val,.blk.red .sub{color:var(--port)}
+.a-ctl{display:flex;flex-direction:column;justify-content:center;gap:6px;padding:6px}
+.ctlrow{display:flex;gap:6px}
+.sbtn{flex:1;min-height:44px;border:1px solid var(--line);background:#000;color:var(--ink);border-radius:6px;font-family:var(--num);font-weight:700;font-size:clamp(.95rem,2.4vmin,1.3rem);letter-spacing:.04em}
+.sbtn:active{background:var(--line)}
+.sbtn.pin{border-color:var(--target);color:var(--target)}
+.sbtn.rc{border-color:var(--ink)}
+.ctlmsg{font-size:.78rem;color:var(--muted);min-height:1.1em;text-align:center}
+@media (orientation:portrait), (max-width:640px){
+  .startview{grid-template-columns:repeat(4,minmax(0,1fr));
+    grid-template-rows:clamp(76px,14vh,140px) minmax(0,1fr) repeat(2,clamp(56px,9.5vh,96px)) auto;
+    grid-template-areas:"cd cd burn burn" "free free free free" "dist ttl luff tack" "bias bias pin boat" "ctl ctl ctl ctl"}
+  .startview .a-cd .val{font-size:min(86cqh,46cqw)}
+  .ctlrow{flex-wrap:wrap}
+}
+
+/* ---- gun message ---- */
+.gunmsg{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2vh;
+  padding:env(safe-area-inset-top,0px) 4vw env(safe-area-inset-bottom,0px);text-align:center;cursor:pointer}
+.gunmsg.good{background:var(--stbd);color:#000}
+.gunmsg.bad{background:var(--port);color:#000}
+.gtxt{font-family:var(--num);font-weight:700;line-height:.9;letter-spacing:.02em;font-size:min(20vw,32vh)}
+.gsub{font-family:var(--num);font-weight:600;font-size:min(6vw,6vh)}
+@media (prefers-reduced-motion: no-preference){.gunmsg:not([hidden]){animation:gunin .25s ease-out}}
+@keyframes gunin{from{opacity:0;transform:scale(1.04)}to{opacity:1;transform:none}}
+.gunbadge{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:2;padding:4px 12px;border-radius:5px;
+  font-family:var(--num);font-weight:700;font-size:1.05rem;letter-spacing:.06em;color:#000}
+.gunbadge.good{background:var(--stbd)} .gunbadge.bad{background:var(--port)}
+
+/* ---- course ---- */
+.crsbar{position:absolute;right:8px;bottom:8px;z-index:2;display:flex;align-items:center;gap:4px;background:#000;border:1px solid var(--line);border-radius:6px;padding:3px}
+.crsbar .btn{min-width:40px;min-height:40px;color:var(--ink);font-family:var(--num);font-weight:700;font-size:1rem}
+.crsname{font-family:var(--num);font-weight:700;font-size:1.05rem;letter-spacing:.04em;padding:0 8px;white-space:nowrap;color:var(--target)}
+.crsname.p{color:var(--target)} .crsname.s{color:var(--target)}
+.mktoast{position:absolute;top:46px;left:50%;transform:translateX(-50%);z-index:3;padding:6px 14px;border-radius:5px;background:var(--target);color:#000;
+  font-family:var(--num);font-weight:700;font-size:1.1rem;letter-spacing:.04em;white-space:nowrap}
+.seq,.mklist{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.seq li,.mklist li{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:5px 6px;border-radius:5px;background:#000;border:1px solid var(--line)}
+.seq li b,.mklist li b{font-family:var(--num);font-size:1.05rem;letter-spacing:.03em;flex:1;min-width:90px}
+.mklist li span{font-family:var(--digits);font-size:.8rem;color:var(--muted);flex-basis:100%;order:3}
+.seq li.on{border-color:var(--target)} .seq li.on b{color:var(--target)}
+.seq li.done{opacity:.5}
+.seq li.empty,.mklist li.empty{color:var(--muted);font-size:.82rem}
+.seq .nr{font-family:var(--digits);color:var(--muted);min-width:1.6em}
+.seq .btn,.mklist .btn{padding:4px 9px}
+.sel{background:#000;border:1px solid var(--line);border-radius:4px;padding:6px;color:var(--ink)}
+.sd.p{color:var(--port)!important;border-color:var(--port)!important} .sd.s{color:var(--stbd)!important;border-color:var(--stbd)!important}
+@media (max-width:640px){.crsname{font-size:.9rem;padding:0 4px}.crsbar{left:8px;right:8px;justify-content:space-between}}
+
+/* ---- VMG and VMC rows the same size; 4 averages ---- */
+.vmgt .blk .val{font-size:min(80cqh,36cqw)}
+.hist b{font-size:clamp(.8rem,min(17cqh,26cqw),1.8rem)}
+.hist span{font-size:clamp(.6rem,8cqh,.95rem)}
+
+/* ---- traces: selectable range, interval lines, VMC per interval ---- */
+.tplot{flex:1;position:relative;width:100%;min-height:0}
+.tplot svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.tov{position:absolute;inset:0;pointer-events:none}
+.tk{position:absolute;left:0;right:0;border-top:1px dashed var(--muted);opacity:.9}
+.tk span{position:absolute;left:1px;top:1px;font-family:var(--num);font-weight:700;font-size:.68rem;color:var(--muted);line-height:1}
+.iv{position:absolute;right:0;display:flex;align-items:center}
+.ivcap{position:absolute;top:2px;right:2px;font-family:var(--num);font-weight:700;font-size:.62rem;letter-spacing:.06em;color:var(--muted)}
+.iv b{font-family:var(--digits);font-weight:var(--dw);font-size:clamp(.7rem,1.6vmin,1rem);color:var(--ink);background:rgba(0,0,0,.65);padding:0 3px;border-radius:3px}
+.rng{border:1px solid var(--muted);background:#000;color:var(--ink);border-radius:4px;padding:1px 6px;font-family:var(--num);font-weight:700;font-size:.75rem;line-height:1.2;cursor:pointer;pointer-events:auto}
+.axis{align-items:center}
+
+/* ---- HDG dominant, COG / SOG / HEEL stacked beside it ---- */
+.navrow{grid-template-columns:minmax(0,2.3fr) minmax(0,1fr)}
+.navstack{display:grid;grid-template-rows:repeat(3,minmax(0,1fr));gap:3px;min-height:0}
+.hdg .val{font-size:min(90cqh,31cqw)}
+.hdg .lbl{font-size:clamp(1rem,13cqh,2rem)}
+.navstack .blk{align-items:flex-end;padding-right:8px}
+.navstack .tile .blk .lbl{top:50%;transform:translateY(-50%)}
+.navstack .val{font-size:min(82cqh,23cqw)}
+.navstack .sub{display:none!important}
+.navstack .tile .blk .lbl{font-size:clamp(.72rem,24cqh,1.1rem)}
+@media (orientation:portrait), (max-width:640px){
+  .navstack .val{font-size:min(70cqh,19cqw)}
+  .navstack .tile .blk .lbl{left:5px;top:3px;transform:none;font-size:.6rem}
+  .navstack .blk{justify-content:flex-end;padding-bottom:2px}
+  .navstack .val{font-size:min(62cqh,19cqw)!important}
+  .navstack .blk{padding-right:4px}
+  .trace .sub{display:none}
+  .trace .lbl{font-size:.72rem!important;letter-spacing:.02em}
+  .trace .lbl small{display:none}
+  .axis{font-size:.55rem;padding:0 1px 2px}
+  .rng{padding:0 3px;font-size:.62rem}
+  .iv b{font-size:.62rem;padding:0 1px}
+  .tk span{font-size:.55rem}
+}
+
+/* ---- first-start welcome ---- */
+.welcome{width:min(460px,94vw);border:1px solid var(--line);border-radius:10px;background:var(--face);color:var(--ink);padding:0}
+.welcome::backdrop{background:#000}
+.wl{padding:26px 24px 20px;display:grid;gap:14px;justify-items:center;text-align:center}
+.wl h2{margin:0;font-family:var(--num);font-weight:700;font-size:2rem;letter-spacing:.06em}
+.wl p{margin:0;color:var(--muted);font-size:.9rem;line-height:1.45}
+.wrow{display:grid;grid-template-columns:auto 1fr 90px;gap:8px;width:100%}
+.wrow label{display:grid;gap:4px;text-align:left;font-size:.75rem;color:var(--muted)}
+.wrow input,.wrow select{width:100%;font-size:1.1rem;padding:10px;border:1px solid var(--line);border-radius:6px;background:#000;color:var(--ink)}
+.wgo{width:100%;min-height:52px;border:0;border-radius:8px;background:var(--accent);color:#000;font-family:var(--num);font-weight:700;font-size:1.3rem;letter-spacing:.04em}
+.wsim{border:0;background:transparent;color:var(--muted);text-decoration:underline;font-size:.85rem}
+@media (max-width:420px){.wrow{grid-template-columns:1fr 1fr}.wrow label:nth-child(2){grid-column:1 / -1;grid-row:1}}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <div class="mark" id="boatMark" hidden></div>
+    <span class="pill sim" id="srcPill"><i></i><span id="srcText">Simulator</span></span>
+    <span class="pill hide-sm" id="polarPill" title="Polar in use"><span id="polarText">Demo polar</span></span>
+    <div class="seg vsw" role="group" aria-label="View"><button id="vInst" aria-pressed="true">Dash</button><button id="vMap" aria-pressed="false">Map</button><button id="vStart" aria-pressed="false">Start</button></div>
+    <div class="spacer"></div>
+    <button class="btn" id="refBtn" title="Lock the current mean TWD as reference for the shift trace">Ref TWD</button>
+    <button class="btn" id="themeBtn">Night</button>
+    <button class="btn primary" id="setBtn">Settings</button>
+  </header>
+
+  <main class="main">
+    <section class="group wind" aria-label="Wind">
+      <h2 class="ghead">Wind</h2>
+      <div class="tile"><div class="blk">
+        <div class="lbl">TWS <small>kn</small></div>
+        <div class="val" id="v-tws">--</div>
+        <div class="sub aws">AWS <b id="v-aws">--</b></div>
+        <div class="sub"><span>max <b id="v-twsmax">--</b></span><span>min <b id="v-twsmin">--</b></span></div>
+      </div></div>
+      <div class="tile"><div class="blk">
+        <div class="lbl">TWD</div>
+        <div class="val" id="v-twd">--</div>
+        <div class="sub"><b id="v-shift">--</b><span id="shiftChip" class="chip neu">--</span></div>
+      </div></div>
+      <div class="tile"><div class="blk">
+        <div class="lbl">TWA</div>
+        <div class="val" id="v-twa">--</div>
+      </div></div>
+      <div class="tile"><div class="blk">
+        <div class="lbl">AWA</div>
+        <div class="val" id="v-awa">--</div>
+      </div></div>
+      <div class="navrow">
+        <div class="tile hdg"><div class="blk"><div class="lbl">HDG</div><div class="val" id="v-hdg">--</div></div></div>
+        <div class="navstack">
+          <div class="tile"><div class="blk"><div class="lbl">COG</div><div class="val" id="v-cog">--</div></div></div>
+          <div class="tile"><div class="blk"><div class="lbl">SOG</div><div class="val" id="v-sog">--</div></div></div>
+          <div class="tile"><div class="blk"><div class="lbl">HEEL</div><div class="val" id="v-heel">--</div><div class="sub" id="heelSide">--</div></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="group boat" aria-label="Boat">
+      <h2 class="ghead">Boat</h2>
+      <div class="tile"><div class="blk bsp" id="t-bsp">
+        <div class="lbl"><span id="l-bsp">BSP</span> <small id="legText">upwind</small></div>
+        <div class="val" id="v-bsp">--</div>
+        <div class="sub" id="s-bsp">--</div>
+      </div></div>
+      <div class="tile vmgt">
+        <div class="hist" aria-label="VMG averages">
+          <div><span>5′</span><b id="v-vmg5">--</b></div>
+          <div><span>10′</span><b id="v-vmg10">--</b></div>
+          <div><span>15′</span><b id="v-vmg15">--</b></div>
+            <div><span>30′</span><b id="v-vmg30">--</b></div>
+        </div>
+        <div class="blk" id="t-vmg">
+          <div class="lbl"><span id="l-vmg">VMG</span> <small>kn</small></div>
+          <div class="val" id="v-vmg">--</div>
+          <div class="sub" id="s-vmg">--</div>
+        </div>
+      </div>
+      <div class="tile vmgt">
+        <div class="hist" aria-label="VMC averages">
+          <div><span>5′</span><b id="v-vmc5">--</b></div>
+          <div><span>10′</span><b id="v-vmc10">--</b></div>
+          <div><span>15′</span><b id="v-vmc15">--</b></div>
+            <div><span>30′</span><b id="v-vmc30">--</b></div>
+        </div>
+        <div class="blk">
+          <div class="lbl">VMC <small>kn</small></div>
+          <div class="val" id="v-vmc">--</div>
+          <div class="sub">BTW <b id="v-btw">--</b></div>
+        </div>
+      </div>
+    </section>
+    <div class="tile trace twdtr"><div class="blk">
+      <div class="lbl">TWD</div>
+      <div class="sub" id="refText">ref auto</div>
+      <div class="axis"><span>L</span><button class="rng" data-rng aria-label="Change time range">10′</button><span>R</span></div>
+      <div class="tplot"><svg id="trace" viewBox="0 0 100 600" preserveAspectRatio="none" aria-label="True wind direction trace, now at the top"></svg><div class="tov" id="tov1"></div></div>
+    </div></div>
+    <div class="tile trace twstr"><div class="blk">
+      <div class="lbl">TWS <small>kn</small></div>
+      <div class="sub" id="twsRef">avg --</div>
+      <div class="axis"><span id="twsLo">--</span><button class="rng" data-rng aria-label="Change time range">10′</button><span id="twsHi">--</span></div>
+      <div class="tplot"><svg id="trace2" viewBox="0 0 100 600" preserveAspectRatio="none" aria-label="True wind speed trace, now at the top"></svg><div class="tov" id="tov2"></div></div>
+    </div></div>
+  </main>
+
+  <section class="mapview" id="mapView" hidden aria-label="Map">
+    <div class="tile mapbox" id="mapBox">
+      <canvas id="map" aria-label="Tactical map with boat, track, next mark and laylines"></canvas>
+      <div class="gunbadge" id="gunBadge" hidden></div>
+      <div class="mktoast" id="mkToast" hidden></div>
+      <div class="crsbar">
+        <button class="btn" id="mkPrev" aria-label="Previous mark">◀</button>
+        <div class="crsname" id="crsName">NO COURSE</div>
+        <button class="btn" id="mkNext" aria-label="Next mark">▶</button>
+        <button class="btn" id="crsBtn">Course</button>
+      </div>
+      <div class="mapctl">
+        <button class="btn" id="zIn" aria-label="Zoom in">+</button>
+        <button class="btn" id="zOut" aria-label="Zoom out">−</button>
+        <button class="btn" id="zFit" aria-pressed="true">Fit</button>
+      </div>
+    </div>
+    <div class="mapnums">
+      <div class="tile"><div class="blk bsp" id="tm-bsp"><div class="lbl">BSP <small>kn</small></div><div class="val" id="m-bsp">--</div></div></div>
+      <div class="tile"><div class="blk"><div class="lbl">TWA</div><div class="val" id="m-twa">--</div></div></div>
+      <div class="tile"><div class="blk"><div class="lbl">TWS <small>kn</small></div><div class="val" id="m-tws">--</div></div></div>
+      <div class="tile"><div class="blk"><div class="lbl">VMC <small>kn</small></div><div class="val" id="m-vmc">--</div></div></div>
+      <div class="tile"><div class="blk"><div class="lbl">DTW <small>nm</small></div><div class="val" id="m-dtw">--</div><div class="sub">TTG <b id="m-ttg">--</b></div></div></div>
+      <div class="tile"><div class="blk"><div class="lbl">BTW</div><div class="val" id="m-btw">--</div></div></div>
+      <div class="tile"><div class="blk"><div class="lbl" style="color:var(--port)">PORT LAY</div><div class="val p" id="m-port">--</div><div class="sub" id="m-portd">--</div></div></div>
+      <div class="tile"><div class="blk"><div class="lbl" style="color:var(--stbd)">STBD LAY</div><div class="val s" id="m-stbd">--</div><div class="sub" id="m-stbdd">--</div></div></div>
+    </div>
+  </section>
+  <section class="startview" id="startView" hidden aria-label="Start line">
+    <div class="a-plot" id="stBox"><canvas id="stmap" aria-label="Start line plot"></canvas></div>
+    <div class="a-free" id="stFree" aria-hidden="true"></div>
+    <div class="tile a-cd"><div class="blk" id="ts-cd"><div class="lbl">START</div><div class="val" id="s-cd">--:--</div><div class="sub" id="s-cdsub">set the timer</div></div></div>
+    <div class="tile a-burn"><div class="blk" id="ts-burn"><div class="lbl">TIME TO BURN</div><div class="val" id="s-burn">--</div><div class="sub" id="s-burnsub">--</div></div></div>
+    <div class="tile a-dist"><div class="blk" id="ts-dist"><div class="lbl">TO LINE <small>m</small></div><div class="val" id="s-dist">--</div><div class="sub" id="s-distsub">ping both ends</div></div></div>
+    <div class="tile a-ttl"><div class="blk"><div class="lbl">TIME TO LINE</div><div class="val" id="s-ttl">--</div><div class="sub">at COG/SOG</div></div></div>
+    <div class="tile a-luff"><div class="blk"><div class="lbl" id="s-lufflbl">LUFF UP</div><div class="val" id="s-luff">--</div><div class="sub" id="s-luffsub">--</div></div></div>
+    <div class="tile a-tack"><div class="blk"><div class="lbl" id="s-tacklbl">TACK UP</div><div class="val" id="s-tack">--</div><div class="sub" id="s-tacksub">--</div></div></div>
+    <div class="tile a-pin"><div class="blk" id="ts-pin"><div class="lbl">AT PIN <small>kn</small></div><div class="val" id="s-pin">--</div><div class="sub" id="s-pinsub">--</div></div></div>
+    <div class="tile a-boat"><div class="blk" id="ts-boat"><div class="lbl">AT BOAT <small>kn</small></div><div class="val" id="s-boat">--</div><div class="sub" id="s-boatsub">--</div></div></div>
+    <div class="tile a-bias"><div class="blk"><div class="lbl">BIAS</div><div class="val" id="s-bias">--</div><div class="sub" id="s-biassub">--</div></div></div>
+    <div class="tile a-ctl">
+      <div class="ctlrow">
+        <button class="sbtn pin" id="pPin">Ping pin</button>
+        <button class="sbtn rc" id="pBoat">Ping boat end</button>
+      </div>
+      <div class="ctlrow">
+        <button class="sbtn" data-cd="300">5′</button><button class="sbtn" data-cd="240">4′</button><button class="sbtn" data-cd="60">1′</button>
+        <button class="sbtn" id="cdSync">Sync</button><button class="sbtn" id="cdStop">Stop</button><button class="sbtn" id="demoBtn">Sim start</button>
+      </div>
+      <div class="ctlmsg" id="sMsg"></div>
+    </div>
+  </section>
+</div>
+
+<dialog id="welcome" class="welcome">
+  <div class="wl">
+    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon points='46,12 46,66 22,66' fill='%23F3F6F9'/%3E%3Cpolygon points='51,18 51,66 76,66' fill='%234FA3FF'/%3E%3Cpolygon points='18,70 82,70 75,80 25,80' fill='%23F3F6F9'/%3E%3C/svg%3E" alt="" width="64" height="64">
+    <h2>MaxRace</h2>
+    <p>Connect your instruments. You find the IP address and port in the settings of your NMEA gateway or instrument system.</p>
+    <div class="wrow">
+      <label>Protocol<select id="wProto" class="sel"><option value="tcp">TCP</option><option value="udp">UDP</option></select></label>
+      <label>IP address<input type="text" id="wHost" inputmode="decimal" placeholder="192.168.1.50"></label>
+      <label>Port<input type="text" id="wPort" inputmode="numeric" placeholder="10110"></label>
+    </div>
+    <button class="wgo" id="wGo">Connect</button>
+    <div class="msg" id="wMsg"></div>
+    <button class="wsim" id="wSim">No instruments now: try the simulator</button>
+  </div>
+</dialog>
+
+<div class="gunmsg" id="gunMsg" hidden role="alert"><div class="gtxt" id="gunTxt"></div><div class="gsub" id="gunSub"></div></div>
+
+<dialog id="crsDlg">
+  <div class="dlg">
+    <div class="row" style="justify-content:space-between"><h2>Course</h2><button class="btn" id="crsClose">Close</button></div>
+
+    <div>
+      <h3>Sequence</h3>
+      <p>The order of the marks to sail. The highlighted leg is the active waypoint, used for DTW, BTW, VMC and laylines. A mark can appear more than once (windward, leeward, windward…).</p>
+      <ol class="seq" id="seqList"></ol>
+      <div class="row" style="margin-top:8px">
+        <label><input type="checkbox" id="autoAdv"> Next mark automatically after rounding</label>
+        <label>rounding radius <input type="text" id="rndR" inputmode="numeric" style="max-width:70px"> m</label>
+      </div>
+    </div>
+
+    <div>
+      <h3>Marks</h3>
+      <ul class="mklist" id="mkList"></ul>
+      <div class="row" style="margin-top:8px">
+        <label>Name <input type="text" id="mkName" placeholder="WINDWARD" style="max-width:140px"></label>
+        <label>Lat <input type="text" id="mkLat" placeholder="43°36.072'N" style="max-width:130px"></label>
+        <label>Lon <input type="text" id="mkLon" placeholder="007°24.000'E" style="max-width:130px"></label>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn primary" id="mkAdd">Add mark</button>
+        <button class="btn" id="mkHere">Add at boat position</button>
+      </div>
+      <p style="margin-top:8px">Coordinates as 43°36.072'N, 43 36.072 N, 43 36 04 N or 43.6012. Decimal comma is fine. West can be W or O.</p>
+      <div class="msg" id="crsMsg"></div>
+    </div>
+
+    <div>
+      <h3>Mark from bearing and distance</h3>
+      <p>For marks given as "1.2 nm at 225° from the committee boat". The bearing is from the reference point to the new mark.</p>
+      <div class="row">
+        <label>From <select id="bdFrom" class="sel"></select></label>
+        <label>Name <input type="text" id="bdName" placeholder="WINDWARD" style="max-width:130px"></label>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <label>Bearing <input type="text" id="bdBrg" inputmode="decimal" placeholder="225" style="max-width:70px"></label>
+        <select id="bdRef" class="sel" aria-label="Bearing reference"><option value="T">°True</option><option value="M">°Magnetic</option></select>
+        <label>variation <input type="text" id="bdVar" placeholder="3.5E" style="max-width:70px"></label>
+        <button class="btn" id="bdTwd">= TWD now</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <label>Distance <input type="text" id="bdDist" inputmode="decimal" placeholder="1.2" style="max-width:70px"></label>
+        <select id="bdUnit" class="sel" aria-label="Distance unit"><option value="nm">nm</option><option value="m">m</option></select>
+        <label><input type="checkbox" id="bdSeq" checked> add to sequence</label>
+        <button class="btn primary" id="bdAdd">Add mark</button>
+      </div>
+      <div class="msg" id="bdMsg"></div>
+    </div>
+
+    <div>
+      <h3>Paste from the sailing instructions</h3>
+      <p>One mark per line: name; latitude; longitude. Each mark is added to the list and, in that order, to the sequence.</p>
+      <textarea id="crsPaste" spellcheck="false" placeholder="1 WINDWARD; 43°37.250'N; 007°23.100'E
+2 OFFSET; 43°37.230'N; 007°23.000'E
+3 LEEWARD; 43°35.900'N; 007°24.500'E"></textarea>
+      <div class="row" style="margin-top:6px"><button class="btn primary" id="crsPasteBtn">Add these marks</button></div>
+    </div>
+
+    <div class="row">
+      <button class="btn" id="crsDemo">Demo course around the boat</button>
+      <button class="btn" id="crsClear">Clear course</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="dlg">
+  <div class="dlg">
+    <div class="row" style="justify-content:space-between"><h2>Settings</h2><button class="btn" id="closeDlg">Close</button></div>
+
+    <div>
+      <h3>Boat name</h3>
+      <p>Optional. Shown at the top left of the screen. Leave empty to show nothing.</p>
+      <div class="row"><input type="text" id="boatIn" maxlength="24" placeholder="e.g. your boat" style="max-width:240px"></div>
+    </div>
+
+    <div>
+      <h3>Course</h3>
+      <p>Marks, their GPS positions and the sequence to sail.</p>
+      <button class="btn primary" id="openCrs">Course and marks</button>
+    </div>
+
+    <div>
+      <h3>Data source</h3>
+      <div class="seg" role="group" aria-label="Data source">
+        <button id="srcSim" aria-pressed="true">Simulator</button>
+        <button id="srcNM" aria-pressed="false">NMEA TCP/UDP</button>
+        <button id="srcSK" aria-pressed="false">Signal K</button>
+      </div>
+      <div id="nmBox" style="margin-top:10px">
+        <p id="nmHelp">NMEA 0183 from your gateway or instrument system, by IP and port. A browser cannot open TCP or UDP sockets itself, so this goes through the small MaxRace bridge running on a laptop or Raspberry Pi on board (maxrace_bridge.py). Open the dashboard from the bridge address and the bridge field fills itself.</p>
+        <div class="row">
+          <label>Protocol <select id="nmProto" style="background:#000;border:1px solid var(--line);border-radius:4px;padding:6px"><option value="tcp">TCP</option><option value="udp">UDP</option></select></label>
+          <label>IP <input type="text" id="nmHost" placeholder="192.168.1.50" style="max-width:150px"></label>
+          <label>Port <input type="text" id="nmPort" inputmode="numeric" placeholder="10110" style="max-width:80px"></label>
+          <button class="btn primary" id="nmConnect">Connect</button>
+        </div>
+        <div class="row" id="nmBridgeRow" style="margin-top:6px"><label>Bridge <input type="text" id="nmBridge" placeholder="http://localhost:8765" style="max-width:240px"></label></div>
+        <div class="msg" id="nmMsg"></div>
+        <p id="nmShare" hidden style="margin-top:6px"></p>
+      </div>
+      <p style="margin-top:10px">Signal K WebSocket address on the boat network, for example ws://10.10.10.1:3000/signalk/v1/stream?subscribe=none. Live data works when this dashboard is opened as a file on a device on the boat's network; the hosted claude.ai page cannot reach your boat's server.</p>
+      <div class="row"><input type="text" id="skUrl" placeholder="ws://10.10.10.1:3000/signalk/v1/stream?subscribe=none"><button class="btn primary" id="skConnect">Connect</button></div>
+      <div class="msg" id="skMsg"></div>
+    </div>
+
+    <div>
+      <h3>Polar</h3>
+      <p>The built-in demo polar is a generic placeholder, not your boat’s data. Paste or open your polar as a table: first row is a label followed by TWS values, each following row is a TWA followed by boat speeds. Tab, semicolon, comma or space separated, as exported by qtVlm or Expedition.</p>
+      <textarea id="polarIn" spellcheck="false" placeholder="TWA\TWS	6	8	10	12	14	16	20
+52	...
+60	..."></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="btn primary" id="polarLoad">Use this polar</button>
+        <label class="btn" for="polarFile">Open file</label><input type="file" id="polarFile" accept=".pol,.txt,.csv" hidden>
+        <button class="btn" id="polarReset">Back to demo polar</button>
+      </div>
+      <div class="msg" id="polarMsg"></div>
+    </div>
+
+    <div>
+      <h3>Manoeuvres at the start</h3>
+      <p>Used for the luff-up and tack-up arcs and times. The defaults are generic placeholders: replace them with values from your own logs.</p>
+      <div class="row">
+        <label>Turn rate °/s <input type="text" id="mRate" inputmode="decimal" style="max-width:80px"></label>
+        <label>Tack loss s <input type="text" id="mTack" inputmode="decimal" style="max-width:80px"></label>
+        <label>Luff loss s <input type="text" id="mLuff" inputmode="decimal" style="max-width:80px"></label>
+      </div>
+    </div>
+
+    <div>
+      <h3>GPS antenna to bow</h3>
+      <p>Distance from the GPS antenna forward to the bow, in metres. Start line distances and pings are measured from the bow.</p>
+      <div class="row"><input type="text" id="bowIn" inputmode="decimal" placeholder="0" style="max-width:140px"></div>
+    </div>
+
+    <div>
+      <h3>Mark bearing for VMC</h3>
+      <p>VMC uses the active waypoint from the instruments when they send one. Otherwise enter the bearing to the next mark in degrees true. Leave empty to turn it off.</p>
+      <div class="row"><input type="text" id="btwIn" inputmode="numeric" placeholder="e.g. 225" style="max-width:140px"></div>
+    </div>
+
+    <div>
+      <h3>Digits</h3>
+      <p>Typeface for the numbers.</p>
+      <div class="seg" role="group" aria-label="Digit typeface" id="digitSeg">
+        <button data-d="oxanium">Oxanium</button>
+        <button data-d="chakra">Chakra Petch</button>
+        <button data-d="mono">Share Tech Mono</button>
+        <button data-d="b612">B612</button>
+      </div>
+    </div>
+
+    <div>
+      <h3>Damping</h3>
+      <p>How much the numbers are smoothed. Left is calmer, right reacts faster.</p>
+      <input type="range" id="damp" min="0.08" max="1" step="0.02" style="width:100%">
+    </div>
+  </div>
+</dialog>
+
+<script>
+(function(){
+"use strict";
+// LOCAL: the page is served by the MaxRace app (or the bridge) on this machine, so it can reach the NMEA source directly
+var LOCAL=/^https?:$/.test(location.protocol)&&!/claude/.test(location.host);
+if(LOCAL){var fl=document.createElement("link");fl.rel="stylesheet";fl.href="fonts/fonts.css";document.head.insertBefore(fl,document.head.firstChild);}
+var KN=1.943844, D2R=Math.PI/180, R2D=180/Math.PI;
+function wrap360(a){return ((a%360)+360)%360;}
+function wrap180(a){a=wrap360(a);return a>180?a-360:a;}
+function $(id){return document.getElementById(id);}
+var SP="maxrace:",OLD=["racedash:","c7dash:"];
+function save(k,v){try{localStorage.setItem(SP+k,JSON.stringify(v));}catch(e){}}
+function load(k,d){try{var v=localStorage.getItem(SP+k);for(var i=0;v==null&&i<OLD.length;i++){v=localStorage.getItem(OLD[i]+k);if(v!=null)localStorage.setItem(SP+k,v);}return v==null?d:JSON.parse(v);}catch(e){return d;}}
+function forget(k){try{localStorage.removeItem(SP+k);OLD.forEach(function(p){localStorage.removeItem(p+k);});}catch(e){}}
+function fin(x){return typeof x==="number"&&isFinite(x);}
+
+/* ---------- polar ---------- */
+function makeDemo(){
+  var tws=[6,8,10,12,14,16,20], twa=[40,45,52,60,75,90,110,120,135,150,165,180];
+  var vmax=[7.4,8.6,9.6,10.3,10.9,11.6,13.0];
+  var shape=[0.72,0.78,0.85,0.90,0.96,0.99,1.00,0.99,0.94,0.84,0.74,0.68];
+  var bsp=twa.map(function(a,i){return tws.map(function(w,j){
+    var deep=a>120?(1-0.18*(1-Math.min(w,16)/16)):1;
+    return Math.round(vmax[j]*shape[i]*deep*100)/100;});});
+  return {name:"Demo polar",tws:tws,twa:twa,bsp:bsp,demo:true};
+}
+var P=load("polar",null)||makeDemo();
+var course=load("course",null)||{marks:[],seq:[],idx:0,auto:true,radius:100};
+var rnd={armed:false,min:Infinity};
+
+
+function seg(arr,x){
+  var n=arr.length;
+  if(x<=arr[0])return [0,0,0];
+  if(x>=arr[n-1])return [n-1,n-1,0];
+  for(var i=0;i<n-1;i++){if(x<=arr[i+1])return [i,i+1,(x-arr[i])/(arr[i+1]-arr[i])];}
+  return [n-1,n-1,0];
+}
+function polarBsp(twa,tws){
+  var a=Math.abs(wrap180(twa)), scale=1, minA=P.twa[0];
+  if(a<minA){scale=Math.max(0,(a-minA*0.5)/(minA*0.5));a=minA;}
+  if(tws<P.tws[0]){scale*=Math.max(0,tws/P.tws[0]);}
+  var A=seg(P.twa,a), W=seg(P.tws,tws);
+  var r0=P.bsp[A[0]], r1=P.bsp[A[1]];
+  var v0=r0[W[0]]+(r0[W[1]]-r0[W[0]])*W[2];
+  var v1=r1[W[0]]+(r1[W[1]]-r1[W[0]])*W[2];
+  return (v0+(v1-v0)*A[2])*scale;
+}
+var tgtCache={};
+function targets(tws){
+  var key=Math.round(tws*10);
+  if(tgtCache[key])return tgtCache[key];
+  var up={twa:45,bsp:0,vmg:-1},dn={twa:150,bsp:0,vmg:-1};
+  for(var a=25;a<=180;a+=0.5){
+    var b=polarBsp(a,tws), v=b*Math.cos(a*D2R);
+    if(a<90&&v>up.vmg)up={twa:a,bsp:b,vmg:v};
+    if(a>90&&-v>dn.vmg)dn={twa:a,bsp:b,vmg:-v};
+  }
+  return (tgtCache[key]={up:up,dn:dn});
+}
+function parsePolar(text,name){
+  var rows=text.split(/\r?\n/).map(function(l){return l.trim();})
+    .filter(function(l){return l&&l.charAt(0)!=="#";})
+    .map(function(l){return l.split(/[\t;, ]+/);});
+  if(rows.length<4)throw new Error("Need a header row of TWS values and at least three TWA rows.");
+  var tws=rows[0].slice(1).map(Number);
+  if(tws.length<2||!tws.every(fin))throw new Error("First row must be a label followed by TWS numbers.");
+  var twa=[],bsp=[];
+  rows.slice(1).forEach(function(r){
+    var a=Number(r[0]), s=r.slice(1,1+tws.length).map(Number);
+    if(!fin(a)||a<=0||s.length!==tws.length||!s.every(fin))return;
+    if(s.every(function(x){return x===0;}))return;
+    twa.push(a);bsp.push(s);
+  });
+  if(twa.length<3)throw new Error("Could not read at least three TWA rows with a speed for every TWS column.");
+  for(var i=1;i<twa.length;i++)if(twa[i]<=twa[i-1])throw new Error("TWA rows must increase from top to bottom.");
+  for(var j=1;j<tws.length;j++)if(tws[j]<=tws[j-1])throw new Error("TWS values must increase from left to right.");
+  return {name:name||"Custom polar",tws:tws,twa:twa,bsp:bsp,demo:false};
+}
+function setPolar(p){P=p;tgtCache={};$("polarText").textContent=p.name+(p.demo?" (placeholder)":"");}
+
+/* ---------- data ---------- */
+var raw={}, S={}, damp=load("damp",0.35);
+var source="sim", ws=null;
+
+/* simulator */
+var sim={t:0,side:1,leg:"up",lastTack:-60,gust:0};
+function dest(lat,lon,brg,nm){return {lat:lat+nm*Math.cos(brg*D2R)/60,lon:lon+nm*Math.sin(brg*D2R)/(60*Math.cos(lat*D2R))};}
+function bearDist(lat1,lon1,lat2,lon2){
+  var dx=(lon2-lon1)*60*Math.cos(lat1*D2R), dy=(lat2-lat1)*60;
+  return {d:Math.sqrt(dx*dx+dy*dy),b:wrap360(Math.atan2(dx,dy)*R2D)};
+}
+function simStep(dt){
+  sim.t+=dt; var t=sim.t;
+  if(!sim.bot){sim.bot={lat:43.60,lon:7.40};sim.top=dest(43.60,7.40,225,1.6);sim.lat=sim.bot.lat;sim.lon=sim.bot.lon;}
+  sim.gust=Math.max(-2,Math.min(3,sim.gust+(Math.random()-0.5)*0.6));
+  var tws=12+2.4*Math.sin(t/140)+sim.gust+(Math.random()-0.5)*0.4;
+  var twd=wrap360(225+7*Math.sin(t/95)+3*Math.sin(t/27)+(Math.random()-0.5)*1.5);
+  var T=targets(tws),twa,bsp,up=true,mk,loss=1;
+  if(sim.mode==="start"&&line&&line.pin&&line.boat){
+    // pre-start autopilot: run away on the reciprocal of the starboard approach,
+    // turn when the time back to the line matches the clock, then trim speed to hit the line at the gun
+    var al=T.up.twa,tb=T.up.bsp,r=cdRem(Date.now());
+    var k=Math.cos(sim.lat*D2R),xy=function(q){return [(q.lon-sim.lon)*60*k,(q.lat-sim.lat)*60];};
+    var P=xy(line.pin),B=xy(line.boat),v=[B[0]-P[0],B[1]-P[1]],len=Math.hypot(v[0],v[1]),n=[-v[1]/len,v[0]/len];
+    var w=[Math.sin(twd*D2R),Math.cos(twd*D2R)];if(n[0]*w[0]+n[1]*w[1]<0)n=[-n[0],-n[1]];
+    var dd=-(P[0]*n[0]+P[1]*n[1]),ah=wrap360(twd-al),h=[Math.sin(ah*D2R),Math.cos(ah*D2R)],hn=h[0]*n[0]+h[1]*n[1];
+    var along=dd<0&&hn>0.05?(-dd)/hn:0, back=along/tb*3600;
+    mk=dest(line.pin.lat,line.pin.lon,wrap360(Math.atan2(v[0],v[1])*R2D),len/2);
+    if(!fin(r)||r<-25){sim.mode="race";sim.bot=mk;sim.top=dest(mk.lat,mk.lon,225,1.4);sim.leg="up";sim.side=1;sim.lastTack=t;}
+    else if(r>0&&sim.sp==="away"){
+      twa=-(180-al);bsp=polarBsp(180-al,tws)*0.97;
+      if(back+22>=r-4){sim.sp="turn";sim.turnT=t;}
+    } else if(r>0&&sim.sp==="turn"){
+      twa=al;loss=0.45+0.55*Math.min(1,(t-sim.turnT)/22);bsp=tb*loss;
+      if(t-sim.turnT>=22)sim.sp="approach";
+    } else if(r>0){
+      twa=al;var need=along/(r/3600);bsp=Math.max(2.5,Math.min(tb,need))+(Math.random()-0.5)*0.1;
+    } else {twa=al;bsp=tb*0.97;}
+  }
+  if(twa===undefined){
+    if(sim.mode==="start")sim.mode="race";
+    var cmk=activeMark(),bd;
+    if(cmk){
+      mk=cmk;bd=bearDist(sim.lat,sim.lon,mk.lat,mk.lon);
+      if(bd.d<0.03){roundedActive();sim.lastTack=t;cmk=activeMark();if(cmk){mk=cmk;bd=bearDist(sim.lat,sim.lon,mk.lat,mk.lon);}}
+      up=Math.abs(wrap180(bd.b-twd))<90;
+    } else {
+      up=sim.leg==="up";mk=up?sim.top:sim.bot;bd=bearDist(sim.lat,sim.lon,mk.lat,mk.lon);
+      if(bd.d<0.04){sim.leg=up?"dn":"up";sim.lastTack=t;up=!up;mk=up?sim.top:sim.bot;bd=bearDist(sim.lat,sim.lon,mk.lat,mk.lon);}
+    }
+    var base=up?T.up.twa:T.dn.twa, dir=up?1:-1;
+    var other=wrap360(twd+sim.side*base), past=sim.side*wrap180(bd.b-other)*dir>=0;
+    var otherPast=(-sim.side)*wrap180(bd.b-wrap360(twd-sim.side*base))*dir>=0;
+    if(t-sim.lastTack>30&&(past||(t-sim.lastTack>170+Math.random()*90&&!otherPast))){sim.side*=-1;sim.lastTack=t;}
+    twa=sim.side*(base+2.5*Math.sin(t/17)+(Math.random()-0.5)*2);
+    var since=t-sim.lastTack;loss=since<25?0.72+0.28*(since/25):1;
+    bsp=polarBsp(twa,tws)*(0.955+0.04*Math.sin(t/31))*loss+(Math.random()-0.5)*0.12;
+  } else {up=Math.abs(twa)<90;}
+  raw.tws=tws;raw.twd=twd;raw.twa=twa;raw.bsp=bsp;
+  raw.hdg=wrap360(twd-twa);
+  raw.cog=wrap360(raw.hdg+3*Math.sin(t/200));raw.sog=Math.max(0,bsp+0.25*Math.sin(t/200));
+  var np=dest(sim.lat,sim.lon,raw.cog,raw.sog*dt/3600);sim.lat=np.lat;sim.lon=np.lon;
+  raw.lat=sim.lat;raw.lon=sim.lon;raw.mlat=mk.lat;raw.mlon=mk.lon;
+  var aw=apparent(tws,twa,bsp);raw.awa=aw.awa;raw.aws=aw.aws;
+  raw.btw=manualBtw!=null?manualBtw:bearDist(sim.lat,sim.lon,mk.lat,mk.lon).b;
+  raw.heel=up?-Math.sign(twa)*Math.min(26,4+tws*1.35)*loss:-Math.sign(twa)*3;
+  fleetStep(dt,t,tws,twd);
+}
+// a handful of simulated competitors, sent as AIS targets
+var FLEET=["ATALANTA","BLUE NOTE","SCIROCCO","ORMA","LIBECCIO","FOGLIA"];
+function fleetStep(dt,t,tws,twd){
+  if(!sim.fleet){sim.fleet=FLEET.map(function(nm,i){
+    var p=dest(sim.lat,sim.lon,wrap360(225+(i%2?90:-90)),0.05+0.06*i);p=dest(p.lat,p.lon,45,0.04*((i*7)%5));
+    return {name:nm,mmsi:"24700"+(1000+i*137),lat:p.lat,lon:p.lon,side:i%2?1:-1,leg:"up",last:-Math.random()*120,perf:0.93+0.02*((i*3)%5)+0.01*Math.random(),flip:60};});}
+  var T=targets(tws),r=sim.mode==="start"?cdRem(Date.now()):NaN;
+  sim.fleet.forEach(function(b){
+    var twa,spd;
+    if(sim.mode==="start"&&fin(r)&&r>0){
+      if(t-b.last>b.flip){b.side*=-1;b.last=t;b.flip=45+Math.random()*40;}
+      twa=b.side*100;spd=4.5;
+    } else {
+      var up,mk,bd,cl=seqMarks();
+      if(cl.length){
+        b.ci=Math.min(b.ci||0,cl.length-1);mk=cl[b.ci];bd=bearDist(b.lat,b.lon,mk.lat,mk.lon);
+        if(bd.d<0.04&&b.ci<cl.length-1){b.ci++;mk=cl[b.ci];bd=bearDist(b.lat,b.lon,mk.lat,mk.lon);b.last=t;}
+        up=Math.abs(wrap180(bd.b-twd))<90;
+      } else {
+        up=b.leg==="up";mk=up?sim.top:sim.bot;bd=bearDist(b.lat,b.lon,mk.lat,mk.lon);
+        if(bd.d<0.04){b.leg=up?"dn":"up";up=!up;mk=up?sim.top:sim.bot;bd=bearDist(b.lat,b.lon,mk.lat,mk.lon);b.last=t;}
+      }
+      var base=up?T.up.twa:T.dn.twa,dir=up?1:-1,other=wrap360(twd+b.side*base);
+      var past=b.side*wrap180(bd.b-other)*dir>=0,otherPast=(-b.side)*wrap180(bd.b-wrap360(twd-b.side*base))*dir>=0;
+      if(t-b.last>30&&(past||(t-b.last>150+Math.random()*150&&!otherPast))){b.side*=-1;b.last=t;}
+      twa=b.side*base;var since=t-b.last;spd=polarBsp(base,tws)*b.perf*(since<25?0.72+0.28*since/25:1);
+    }
+    b.hdg=wrap360(twd-twa);b.cog=b.hdg;b.sog=spd;
+    var np=dest(b.lat,b.lon,b.cog,spd*dt/3600);b.lat=np.lat;b.lon=np.lon;
+    ais["sim:"+b.mmsi]={name:b.name,mmsi:b.mmsi,lat:b.lat,lon:b.lon,cog:b.cog,sog:b.sog,hdg:b.hdg,t:Date.now()};
+  });
+}
+function apparent(tws,twa,bsp){
+  var x=tws*Math.cos(twa*D2R)+bsp, y=tws*Math.sin(twa*D2R);
+  return {aws:Math.sqrt(x*x+y*y),awa:Math.atan2(y,x)*R2D};
+}
+function trueFromApp(aws,awa,bsp){
+  var x=aws*Math.cos(awa*D2R)-bsp, y=aws*Math.sin(awa*D2R);
+  return {tws:Math.sqrt(x*x+y*y),twa:Math.atan2(y,x)*R2D};
+}
+
+/* Signal K */
+var SKMAP={
+  "navigation.speedThroughWater":function(v){raw.bsp=v*KN;},
+  "environment.wind.speedTrue":function(v){raw.tws=v*KN;raw._t=1;},
+  "environment.wind.angleTrueWater":function(v){raw.twa=wrap180(v*R2D);raw._t=1;},
+  "environment.wind.directionTrue":function(v){raw.twd=wrap360(v*R2D);raw._d=1;},
+  "environment.wind.speedApparent":function(v){raw.aws=v*KN;},
+  "environment.wind.angleApparent":function(v){raw.awa=wrap180(v*R2D);},
+  "navigation.headingTrue":function(v){raw.hdg=wrap360(v*R2D);raw._h=1;},
+  "navigation.headingMagnetic":function(v){if(!raw._h)raw.hdg=wrap360(v*R2D);},
+  "navigation.speedOverGround":function(v){raw.sog=v*KN;},
+  "navigation.courseOverGroundTrue":function(v){raw.cog=wrap360(v*R2D);},
+  "navigation.attitude":function(v){if(v&&fin(v.roll))raw.heel=v.roll*R2D;},
+  "navigation.courseRhumbline.nextPoint.bearingTrue":function(v){raw.btw=wrap360(v*R2D);raw._b=1;},
+  "navigation.courseGreatCircle.nextPoint.bearingTrue":function(v){if(!raw._b){raw.btw=wrap360(v*R2D);raw._b=1;}},
+  "navigation.courseRhumbline.nextPoint.velocityMadeGood":function(v){raw.vmc=v*KN;},
+  "navigation.courseGreatCircle.nextPoint.velocityMadeGood":function(v){raw.vmc=v*KN;},
+  "navigation.position":function(v){if(v&&fin(v.latitude)){raw.lat=v.latitude;raw.lon=v.longitude;}},
+  "navigation.courseRhumbline.nextPoint.position":function(v){if(v&&fin(v.latitude)){raw.mlat=v.latitude;raw.mlon=v.longitude;raw._m=1;}},
+  "navigation.courseGreatCircle.nextPoint.position":function(v){if(v&&fin(v.latitude)&&!raw._m){raw.mlat=v.latitude;raw.mlon=v.longitude;}},
+  "navigation.courseRhumbline.nextPoint.distance":function(v){raw.dtw=v/1852;},
+  "navigation.courseGreatCircle.nextPoint.distance":function(v){raw.dtw=v/1852;}
+};
+function skMsg(text,cls){var m=$("skMsg");m.textContent=text;m.className="msg "+(cls||"");}
+function connectSK(url){
+  disconnectSK();
+  if(!/^wss?:\/\//.test(url)){skMsg("Address must start with ws:// or wss://","err");return;}
+  save("skurl",url);raw={};
+  try{ws=new WebSocket(url);}catch(e){skMsg("Could not open that address: "+e.message,"err");setPill("err","Not connected");return;}
+  setPill("err","Connecting");skMsg("Connecting to "+url);
+  ws.onopen=function(){
+    ws.send(JSON.stringify({context:"vessels.self",subscribe:[{path:"*",period:500}]}));
+    ws.send(JSON.stringify({context:"vessels.*",subscribe:["navigation.position","navigation.courseOverGroundTrue","navigation.speedOverGround","navigation.headingTrue","name",""].map(function(p){return {path:p,period:2000};})}));
+    save("src","sk");setPill("live","Live, Signal K");skMsg("Connected. Waiting for data.","ok");
+  };
+  ws.onmessage=function(ev){
+    var d;try{d=JSON.parse(ev.data);}catch(e){return;}
+    if(d.self)selfCtx=d.self.indexOf("vessels.")===0?d.self:"vessels."+d.self;
+    var c=d.context;
+    if(c&&c!=="vessels.self"&&c!==selfCtx){aisDelta(c,d.updates||[]);return;}
+    (d.updates||[]).forEach(function(u){(u.values||[]).forEach(function(pv){
+      var f=SKMAP[pv.path];if(f&&pv.value!=null)f(pv.value);});});
+  };
+  ws.onerror=function(){skMsg("Connection failed. Check the address and that this device is on the boat network with the Signal K server running.","err");};
+  ws.onclose=function(){if(source==="sk"){setPill("err","Not connected");}};
+}
+var selfCtx=null, ais={};
+function aisDelta(ctx,ups){
+  var a=ais[ctx]||(ais[ctx]={name:null,mmsi:(ctx.match(/mmsi:(\d+)/)||[])[1]||null});
+  ups.forEach(function(u){(u.values||[]).forEach(function(pv){
+    var v=pv.value;if(v==null)return;
+    if(pv.path==="navigation.position"&&fin(v.latitude)){a.lat=v.latitude;a.lon=v.longitude;a.t=Date.now();}
+    else if(pv.path==="navigation.courseOverGroundTrue")a.cog=wrap360(v*R2D);
+    else if(pv.path==="navigation.speedOverGround")a.sog=v*KN;
+    else if(pv.path==="navigation.headingTrue")a.hdg=wrap360(v*R2D);
+    else if(pv.path==="name"&&typeof v==="string")a.name=v;
+    else if(pv.path===""&&v&&typeof v.name==="string")a.name=v.name;
+  });});
+}
+function disconnectSK(){if(ws){ws.onclose=null;try{ws.close();}catch(e){}ws=null;}}
+function setPill(kind,text){$("srcPill").className="pill "+kind;$("srcText").textContent=text;}
+
+var manualBtw=load("btw",null);
+function derive(){
+  if(source!=="sim"&&!raw._b&&manualBtw!=null)raw.btw=manualBtw;
+  if(source==="sim")return;
+  if(!raw._b&&manualBtw==null&&fin(raw.lat)&&fin(raw.mlat))raw.btw=bearDist(raw.lat,raw.lon,raw.mlat,raw.mlon).b;
+  if(!raw._t&&fin(raw.aws)&&fin(raw.awa)&&fin(raw.bsp)){var t=trueFromApp(raw.aws,raw.awa,raw.bsp);raw.tws=t.tws;raw.twa=t.twa;}
+  if(!raw._d&&fin(raw.hdg)&&fin(raw.twa))raw.twd=wrap360(raw.hdg+raw.twa);
+  if(!fin(raw.awa)&&fin(raw.tws)&&fin(raw.twa)&&fin(raw.bsp)){var a=apparent(raw.tws,raw.twa,raw.bsp);raw.awa=a.awa;raw.aws=a.aws;}
+}
+
+/* smoothing */
+var ANG={twa:1,awa:1,twd:1,hdg:1,cog:1,btw:1};
+var NOS={lat:1,lon:1,mlat:1,mlon:1,dtw:1};
+function smooth(){
+  Object.keys(raw).forEach(function(k){
+    var r=raw[k]; if(!fin(r)||k.charAt(0)==="_")return;
+    if(NOS[k]||!fin(S[k])){S[k]=r;return;}
+    if(ANG[k])S[k]=S[k]+wrap180(r-S[k])*damp; else S[k]=S[k]+(r-S[k])*damp;
+    if(k==="twd"||k==="hdg"||k==="cog"||k==="btw")S[k]=wrap360(S[k]);
+    if(k==="twa"||k==="awa")S[k]=wrap180(S[k]);
+  });
+}
+
+/* history for TWD trace and TWS min/max */
+var hist=[], refTwd=null, lastHist=0;
+function circMean(arr){
+  var x=0,y=0;arr.forEach(function(a){x+=Math.cos(a*D2R);y+=Math.sin(a*D2R);});
+  return wrap360(Math.atan2(y,x)*R2D);
+}
+function vmcNow(){return fin(S.vmc)?S.vmc:(fin(S.btw)&&fin(S.sog)&&fin(S.cog)?S.sog*Math.cos((S.cog-S.btw)*D2R):NaN);}
+function vmgNow(){return fin(S.bsp)&&fin(S.twa)?Math.abs(S.bsp*Math.cos(S.twa*D2R)):NaN;}
+function avgHist(now,min,key){
+  var a=hist.filter(function(h){return now-h.t<=min*60000&&fin(h[key]);});
+  if(!a.length)return NaN;
+  return a.reduce(function(s,h){return s+h[key];},0)/a.length;
+}
+function avgVmg(now,min){return avgHist(now,min,"vmg");}
+function perfNow(){
+  if(!fin(S.tws)||!fin(S.twa)||!fin(S.bsp))return NaN;
+  var T=targets(S.tws),g=Math.abs(S.twa)<90?T.up:T.dn;return g.bsp>0.1?S.bsp/g.bsp:NaN;
+}
+function histRow(t){return {t:t,twd:S.twd,tws:S.tws,vmg:vmgNow(),vmc:vmcNow(),lat:S.lat,lon:S.lon,p:perfNow()};}
+function seedSim(){
+  var now=Date.now();hist=[];ais={};sim={t:0,side:1,leg:"up",lastTack:-60,gust:0};
+  for(var i=1800;i>0;i--){simStep(1);smooth();hist.push(histRow(now-i*1000));}
+  lastHist=now;
+}
+function pushHist(now){
+  if(now-lastHist<1000||!fin(S.twd))return;lastHist=now;
+  hist.push(histRow(now));
+  while(hist.length&&now-hist[0].t>1800000)hist.shift();
+}
+function currentRef(now){
+  if(refTwd!=null)return refTwd;
+  var r=hist.filter(function(h){return now-h.t<=300000;}).map(function(h){return h.twd;});
+  return r.length?circMean(r):null;
+}
+
+var NS="http://www.w3.org/2000/svg";
+function el(tag,attrs,parent){var e=document.createElementNS(NS,tag);for(var k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
+
+/* ---------- trace ---------- */
+var trace=$("trace");
+(function buildTrace(){
+  [-10,0,10].forEach(function(d){el("line",{y1:0,y2:600,x1:50+d*3.2,x2:50+d*3.2,stroke:d===0?"var(--muted)":"var(--line)","stroke-width":1,"vector-effect":"non-scaling-stroke"},trace);});
+})();
+var trace2=$("trace2"),twsGrid=el("g",{},trace2),tracePath2=el("polyline",{fill:"none",stroke:"var(--ink)","stroke-width":2.5,"vector-effect":"non-scaling-stroke","stroke-linejoin":"round"},trace2);
+var RANGES=[5,10,15,30],trng=load("trng",10);if(RANGES.indexOf(trng)<0)trng=10;
+function rngStep(m){return m<=5?1:m<=10?2:m<=15?3:5;}
+function setRng(m){trng=m;save("trng",m);[].forEach.call(document.querySelectorAll("[data-rng]"),function(b){b.textContent=m+"′";});}
+[].forEach.call(document.querySelectorAll("[data-rng]"),function(b){b.onclick=function(){setRng(RANGES[(RANGES.indexOf(trng)+1)%RANGES.length]);};});
+setRng(trng);
+// time interval lines with the average VMC of each interval written beside them
+function overlay(id,now,withVmc){
+  var st=rngStep(trng),n=Math.round(trng/st),h="";
+  for(var k=0;k<n;k++){
+    var top=k*st/trng*100,ht=st/trng*100;
+    if(k>0)h+='<div class="tk" style="top:'+top+'%"><span>'+(k*st)+'′</span></div>';
+    if(withVmc){
+      var a=hist.filter(function(r){var dt=now-r.t;return dt>=k*st*60000&&dt<(k+1)*st*60000&&fin(r.vmc);});
+      var v=a.length?a.reduce(function(x,r){return x+r.vmc;},0)/a.length:NaN;
+      h+='<div class="iv" style="top:'+top+'%;height:'+ht+'%"><b>'+f1(v)+'</b></div>';
+    }
+  }
+  if(withVmc)h+='<div class="ivcap">VMC</div>';
+  $(id).innerHTML=h;
+}
+var tracePath=el("polyline",{fill:"none",stroke:"var(--accent)","stroke-width":2.5,"vector-effect":"non-scaling-stroke","stroke-linejoin":"round"},trace);
+
+/* ---------- render ---------- */
+function f1(x){return fin(x)?x.toFixed(1):"--";}
+function f0(x){return fin(x)?Math.round(x).toString():"--";}
+function deg3(x){return fin(x)?("00"+Math.round(wrap360(x))%360).slice(-3)+"°":"--";}
+function sideAng(x){return fin(x)?Math.round(Math.abs(x))+"°":"--";}
+var PF={
+  normal:{stops:[[0.80,"#FF4A40"],[0.90,"#FFD23F"],[1.00,"#2FD27A"],[1.10,"#FFC83D"]],face:"#0A0D11",hot:"#0F3D24"},
+  night:{stops:[[0.80,"#FF3A2C"],[0.90,"#C9A12F"],[1.00,"#2A9E5E"],[1.10,"#C9982E"]],face:"#060000",hot:"#0A2416"}
+};
+function hex(h){return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
+function mix(a,b,f){var A=hex(a),B=hex(b);return "rgb("+A.map(function(x,i){return Math.round(x+(B[i]-x)*f);}).join(",")+")";}
+function perfColor(p,st){
+  if(p<=st[0][0])return mix(st[0][1],st[0][1],0);
+  for(var i=0;i<st.length-1;i++){if(p<=st[i+1][0])return mix(st[i][1],st[i+1][1],(p-st[i][0])/(st[i+1][0]-st[i][0]));}
+  return mix(st[st.length-1][1],st[st.length-1][1],0);
+}
+function perf(id,p){
+  var e=$(id),t=e.closest(".tile"),v=e.querySelector(".val"),pal=PF[theme==="night"?"night":"normal"];
+  if(!fin(p)){v.style.color="";t.style.background="";return;}
+  v.style.color=perfColor(p,pal.stops);
+  // background warms toward deep green from 100% to 110% and beyond
+  var f=Math.max(0,Math.min(1,(p-1)/0.1));
+  t.style.background=f>0?mix(pal.face,pal.hot,f):"";
+}
+function colorSide(id,x){var e=$(id);e.classList.remove("p","s");if(fin(x))e.classList.add(x<0?"p":"s");}
+
+function render(now){
+  var twa=S.twa, tws=S.tws;
+  $("v-tws").textContent=f1(tws);
+  $("v-twd").textContent=deg3(S.twd);
+  $("v-awa").textContent=sideAng(S.awa);colorSide("v-awa",S.awa);
+  $("v-twa").textContent=sideAng(twa);colorSide("v-twa",twa);
+  $("v-aws").textContent=f1(S.aws);
+  $("v-hdg").textContent=deg3(S.hdg);$("v-cog").textContent=deg3(S.cog);$("v-sog").textContent=f1(S.sog);
+
+  if(fin(S.heel)){$("v-heel").textContent=Math.abs(S.heel).toFixed(0)+"°";$("heelSide").textContent=Math.abs(S.heel)<0.5?"Upright":(S.heel>0?"Stbd down":"Port down");}
+
+  if(fin(twa)&&fin(tws)&&fin(S.bsp)){
+    var up=Math.abs(twa)<90, T=targets(tws), tg0=up?T.up:T.dn;
+    $("legText").textContent=up?"upwind":"downwind";
+    var pb=polarBsp(twa,tws), pp=pb>0.1?S.bsp/pb*100:NaN;
+    var bp=tg0.bsp>0.1?S.bsp/tg0.bsp:NaN;
+    var vmg=Math.abs(S.bsp*Math.cos(twa*D2R));
+    var vp=tg0.vmg>0.1?vmg/tg0.vmg:NaN;
+    perf("t-bsp",bp);perf("t-vmg",vp);
+    // every 10 s the target replaces the live number for 2 s
+    var flash=(now%10000)>=8000, ttwa="TWA <b>"+tg0.twa.toFixed(0)+"°</b>";
+    $("t-bsp").classList.toggle("tgtmode",flash);$("t-vmg").classList.toggle("tgtmode",flash);
+    $("l-bsp").textContent=flash?"TARGET BSP":"BSP";$("l-vmg").textContent=flash?"TARGET VMG":"VMG";
+    $("v-bsp").textContent=flash?tg0.bsp.toFixed(1):f1(S.bsp);
+    $("v-vmg").textContent=flash?tg0.vmg.toFixed(1):vmg.toFixed(1);
+    $("s-bsp").innerHTML=flash?ttwa:(fin(bp)?"<b>"+(bp*100).toFixed(0)+"%</b> target":"--");
+    $("s-vmg").innerHTML=flash?ttwa:(fin(vp)?"<b>"+(vp*100).toFixed(0)+"%</b> target":"--");
+    var vmc=vmcNow();
+    $("v-vmc").textContent=f1(vmc);$("v-btw").textContent=deg3(S.btw);
+    $("v-vmg5").textContent=f1(avgVmg(now,5));$("v-vmg10").textContent=f1(avgVmg(now,10));$("v-vmg15").textContent=f1(avgVmg(now,15));$("v-vmg30").textContent=f1(avgVmg(now,30));
+    $("v-vmc5").textContent=f1(avgHist(now,5,"vmc"));$("v-vmc10").textContent=f1(avgHist(now,10,"vmc"));$("v-vmc15").textContent=f1(avgHist(now,15,"vmc"));$("v-vmc30").textContent=f1(avgHist(now,30,"vmc"));
+
+    // shift
+    var ref=currentRef(now);
+    if(ref!=null&&fin(S.twd)){
+      var d=wrap180(S.twd-ref);
+      $("v-shift").textContent=(d>=0?"+":"−")+Math.abs(d).toFixed(0)+"° "+(d>=0?"veer":"back");
+      var fav=(twa>0?d:-d)*(up?1:-1), chip=$("shiftChip");
+      if(Math.abs(d)<2){chip.className="chip neu";chip.textContent="On ref";}
+      else if(fav>0){chip.className="chip good";chip.textContent=up?"Lifted":"Favoured gybe";}
+      else {chip.className="chip bad";chip.textContent=up?"Headed":"Consider gybe";}
+      $("refText").textContent=(refTwd!=null?"ref ":"ref 5′ ")+deg3(ref);
+      var pts=hist.filter(function(h){return now-h.t<=trng*60000;}).map(function(h){var y=(now-h.t)/(trng*100);var x=50+Math.max(-15,Math.min(15,wrap180(h.twd-ref)))*3.2;return x.toFixed(1)+","+y.toFixed(1);});
+      tracePath.setAttribute("points",pts.join(" "));
+    }
+  }
+
+  // TWS trace over the selected range, scale fitted (at least 4 kn), grid every 1 or 2 kn
+  overlay("tov1",now,true);overlay("tov2",now,false);
+  var tw=hist.filter(function(h){return now-h.t<=trng*60000&&fin(h.tws);});
+  if(tw.length){
+    var vs=tw.map(function(h){return h.tws;}),lo=Math.floor(Math.min.apply(null,vs)-0.5),hi=Math.ceil(Math.max.apply(null,vs)+0.5);
+    if(hi-lo<4){var c=(hi+lo)/2;lo=Math.floor(c-2);hi=lo+4;}
+    var X=function(v){return 4+(v-lo)/(hi-lo)*92;},stp=hi-lo>8?2:1;
+    while(twsGrid.firstChild)twsGrid.removeChild(twsGrid.firstChild);
+    for(var g=Math.ceil(lo/stp)*stp;g<=hi;g+=stp)el("line",{y1:0,y2:600,x1:X(g),x2:X(g),stroke:"var(--line)","stroke-width":1,"vector-effect":"non-scaling-stroke"},twsGrid);
+    var avg=vs.reduce(function(a,b){return a+b;},0)/vs.length;
+    el("line",{y1:0,y2:600,x1:X(avg),x2:X(avg),stroke:"var(--muted)","stroke-width":1,"stroke-dasharray":"4 4","vector-effect":"non-scaling-stroke"},twsGrid);
+    tracePath2.setAttribute("points",tw.map(function(h){return X(h.tws).toFixed(1)+","+((now-h.t)/(trng*100)).toFixed(1);}).join(" "));
+    $("twsLo").textContent=lo;$("twsHi").textContent=hi;$("twsRef").textContent="avg "+avg.toFixed(1);
+  }
+  var recent=hist.filter(function(h){return now-h.t<=300000&&fin(h.tws);}).map(function(h){return h.tws;});
+  if(recent.length){$("v-twsmax").textContent=Math.max.apply(null,recent).toFixed(1);$("v-twsmin").textContent=Math.min.apply(null,recent).toFixed(1);}
+}
+
+var lastTick=performance.now();
+function loop(){
+  var now=Date.now(), p=performance.now(), dt=(p-lastTick)/1000; lastTick=p;
+  if(source==="sim")simStep(Math.min(dt,1)); else derive();
+  applyCourse(); smooth(); courseTick(now); pushHist(now); render(now);
+  if(view==="map"){renderMapNums();drawMap();}
+  if(view==="start"){renderStart(now);drawStart();}
+  checkGun(now);
+}
+seedSim();
+setInterval(loop,250);
+
+/* ---------- map view ---------- */
+var view=load("view","inst"), mapFit=true, mapS=200;
+function markPos(){return fin(S.mlat)&&fin(S.mlon)?{lat:S.mlat,lon:S.mlon}:null;}
+function dtwBtw(){
+  var m=markPos(),o={d:NaN,b:S.btw};
+  if(m&&fin(S.lat)){var bd=bearDist(S.lat,S.lon,m.lat,m.lon);o.d=bd.d;if(!fin(o.b))o.b=bd.b;}
+  if(fin(S.dtw))o.d=S.dtw;
+  return o;
+}
+function layDirs(twd,tws,upMark){
+  var T=targets(tws),al=upMark?T.up.twa:T.dn.twa;
+  return {s:wrap360(twd-al+180),p:wrap360(twd+al+180)};   // direction from the mark along each layline
+}
+// distance and time to both laylines:
+// - the one ahead on the current tack, along COG at SOG
+// - the one you would sail to after tacking now, along the target heading at target BSP
+function hitLay(M,head,lay){
+  var u=[Math.sin(head*D2R),Math.cos(head*D2R)],v=[Math.sin(lay*D2R),Math.cos(lay*D2R)];
+  var det=-u[0]*v[1]+v[0]*u[1]; if(Math.abs(det)<1e-6)return null;
+  var sd=(-M[0]*v[1]+v[0]*M[1])/det,t=(u[0]*M[1]-u[1]*M[0])/det;
+  return {d:sd,past:sd<0&&t>0,hit:sd>0&&t>0,pt:[u[0]*sd,u[1]*sd]};
+}
+function layInfo(){
+  var mk=markPos();
+  if(!mk||!fin(S.lat)||!fin(S.twd)||!fin(S.tws)||!fin(S.twa))return null;
+  var bd=bearDist(S.lat,S.lon,mk.lat,mk.lon),up=Math.abs(wrap180(bd.b-S.twd))<90;
+  var M=[Math.sin(bd.b*D2R)*bd.d,Math.cos(bd.b*D2R)*bd.d],side=S.twa>=0?1:-1,dirs=layDirs(S.twd,S.tws,up);
+  var T=targets(S.tws),g=up?T.up:T.dn;
+  var here=hitLay(M,fin(S.cog)?S.cog:S.hdg,side>0?dirs.p:dirs.s);
+  var there=hitLay(M,wrap360(S.twd+side*g.twa),side>0?dirs.s:dirs.p);
+  if(here){here.spd=S.sog;here.mode="this tack";}
+  if(there){there.spd=g.bsp;there.mode="after tack";}
+  var o={};o[side>0?"port":"stbd"]=here;o[side>0?"stbd":"port"]=there;return o;
+}
+function layText(x){
+  if(!x)return {t:"--",d:"no mark"};
+  if(x.past)return {t:"PAST",d:"overstood"};
+  if(!x.hit)return {t:"--",d:"not converging"};
+  return {t:fin(x.spd)&&x.spd>0.3?fmtTime(x.d/x.spd*3600):"--",d:(x.d<10?x.d.toFixed(2):x.d.toFixed(1))+" nm",m:x.mode};
+}
+function renderMapNums(){
+  $("m-bsp").textContent=f1(S.bsp);perf("tm-bsp",perfNow());
+  $("m-twa").textContent=sideAng(S.twa);colorSide("m-twa",S.twa);
+  $("m-tws").textContent=f1(S.tws);
+  $("m-vmc").textContent=f1(vmcNow());
+  var o=dtwBtw();
+  $("m-dtw").textContent=fin(o.d)?(o.d<10?o.d.toFixed(2):o.d.toFixed(1)):"--";
+  $("m-btw").textContent=deg3(o.b);
+  var vm=vmcNow();
+  $("m-ttg").textContent=fin(o.d)&&fin(vm)&&vm>0.3?fmtTime(o.d/vm*3600):"--";
+  var li=layInfo()||{};
+  ["port","stbd"].forEach(function(k){
+    var x=layText(li[k]);$("m-"+k).textContent=x.t;
+    $("m-"+k+"d").innerHTML=x.m?"<b>"+x.d+"</b> "+x.m:x.d;
+  });
+}
+function fmtTime(sec){var m=Math.floor(sec/60),s=Math.round(sec%60);if(m>=100)return Math.round(m/60)+"h";return m+"′"+("0"+s).slice(-2);}
+function sizeMap(){
+  var c=$("map"),r=c.parentNode.getBoundingClientRect(),d=window.devicePixelRatio||1;
+  c.width=Math.max(1,Math.round(r.width*d));c.height=Math.max(1,Math.round(r.height*d));
+}
+if(window.ResizeObserver)new ResizeObserver(function(){if(view==="map"){sizeMap();drawMap();}}).observe($("mapBox"));
+function drawMap(){
+  var c=$("map"),ctx=c.getContext("2d"),W=c.width,H=c.height,d=window.devicePixelRatio||1;
+  var cs=getComputedStyle(document.documentElement),col=function(n){return cs.getPropertyValue(n).trim();};
+  ctx.fillStyle=col("--face");ctx.fillRect(0,0,W,H);
+  if(!fin(S.lat)){ctx.fillStyle=col("--muted");ctx.font=(14*d)+"px Barlow, sans-serif";ctx.textAlign="center";
+    ctx.fillText("No position yet. The map starts when the instruments send GPS position.",W/2,H/2);return;}
+  var lat0=S.lat,lon0=S.lon,k=Math.cos(lat0*D2R);
+  function nm(lat,lon){return [(lon-lon0)*60*k,(lat-lat0)*60];}
+  var mk=markPos(),mxy=mk?nm(mk.lat,mk.lon):null,cx=0,cy=0;
+  if(mapFit){
+    var pts=[[0,0]];if(mxy)pts.push(mxy);else hist.forEach(function(h){if(fin(h.lat))pts.push(nm(h.lat,h.lon));});
+    var x0=Math.min.apply(null,pts.map(function(p){return p[0];})),x1=Math.max.apply(null,pts.map(function(p){return p[0];}));
+    var y0=Math.min.apply(null,pts.map(function(p){return p[1];})),y1=Math.max.apply(null,pts.map(function(p){return p[1];}));
+    cx=(x0+x1)/2;cy=(y0+y1)/2;
+    var span=Math.max(x1-x0,(y1-y0),0.15);
+    mapS=Math.min(W/d,H/d)*0.72/Math.max(x1-x0,y1-y0,0.15);
+    mapS=Math.min((W/d)*0.8/Math.max(x1-x0,0.15),(H/d)*0.8/Math.max(y1-y0,0.15));
+  }
+  var s=mapS*d;
+  function sc(p){return [W/2+(p[0]-cx)*s,H/2-(p[1]-cy)*s];}
+  // grid
+  var steps=[0.02,0.05,0.1,0.2,0.25,0.5,1,2,5,10],step=steps[steps.length-1];
+  for(var i=0;i<steps.length;i++){if(steps[i]*s>=80*d){step=steps[i];break;}}
+  ctx.strokeStyle=col("--line");ctx.lineWidth=1*d;ctx.beginPath();
+  var gx0=Math.floor((cx-W/2/s)/step)*step,gx1=cx+W/2/s,gy0=Math.floor((cy-H/2/s)/step)*step,gy1=cy+H/2/s;
+  for(var gx=gx0;gx<=gx1;gx+=step){var a=sc([gx,0]);ctx.moveTo(a[0],0);ctx.lineTo(a[0],H);}
+  for(var gy=gy0;gy<=gy1;gy+=step){var b=sc([0,gy]);ctx.moveTo(0,b[1]);ctx.lineTo(W,b[1]);}
+  ctx.stroke();
+  // the course: legs still to sail, all marks, rounding side
+  var cl2=course.seq.map(function(l){var m=markById(l.id);return m?{m:m,side:l.side}:null;}).filter(Boolean);
+  if(cl2.length){
+    ctx.strokeStyle=col("--muted");ctx.lineWidth=1.5*d;ctx.setLineDash([6*d,6*d]);ctx.beginPath();
+    for(var ci=Math.max(0,course.idx);ci<cl2.length;ci++){var z=sc(nm(cl2[ci].m.lat,cl2[ci].m.lon));if(ci>course.idx)ctx.lineTo(z[0],z[1]);else ctx.moveTo(z[0],z[1]);}
+    ctx.stroke();ctx.setLineDash([]);
+    var drawn={};
+    course.marks.forEach(function(m){
+      var z=sc(nm(m.lat,m.lon)),act=activeMark()===m;
+      ctx.strokeStyle=act?col("--target"):col("--muted");ctx.lineWidth=2*d;ctx.beginPath();ctx.arc(z[0],z[1],6*d,0,2*Math.PI);ctx.stroke();
+      var legs=[];course.seq.forEach(function(l,i){if(l.id===m.id)legs.push(i+1);});
+      ctx.font="700 "+(12*d)+"px 'Barlow Condensed', sans-serif";ctx.textAlign="left";ctx.textBaseline="middle";
+      var t=m.name+(legs.length?"  "+legs.join("·"):"");ctx.lineWidth=4*d;ctx.strokeStyle=col("--face");ctx.strokeText(t,z[0]+16*d,z[1]);
+      ctx.fillStyle=act?col("--target"):col("--ink");ctx.fillText(t,z[0]+16*d,z[1]);ctx.textBaseline="alphabetic";
+    });
+  }
+  // laylines from the mark, with the cone they swept over the last 10 minutes
+  if(mxy&&fin(S.twd)&&fin(S.tws)){
+    var m0=sc(mxy),bm=bearDist(S.lat,S.lon,mk.lat,mk.lon).b,upMark=Math.abs(wrap180(bm-S.twd))<90;
+    var cur=layDirs(S.twd,S.tws,upMark),L=Math.max(4,3*Math.hypot(mxy[0],mxy[1]));
+    var rng={s:[0,0],p:[0,0]},nowT=Date.now();
+    hist.forEach(function(h){
+      if(nowT-h.t>600000||!fin(h.twd)||!fin(h.tws))return;
+      var dd=layDirs(h.twd,h.tws,upMark);
+      ["s","p"].forEach(function(k){var r=wrap180(dd[k]-cur[k]);if(r<rng[k][0])rng[k][0]=r;if(r>rng[k][1])rng[k][1]=r;});
+    });
+    [["s",col("--stbd")],["p",col("--port")]].forEach(function(l){
+      var k=l[0];ctx.fillStyle=l[1];ctx.globalAlpha=0.16;ctx.beginPath();ctx.moveTo(m0[0],m0[1]);
+      for(var a=rng[k][0];a<=rng[k][1]+0.001;a+=Math.max(0.5,(rng[k][1]-rng[k][0])/24)){
+        var dir=cur[k]+a,e=sc([mxy[0]+Math.sin(dir*D2R)*L,mxy[1]+Math.cos(dir*D2R)*L]);ctx.lineTo(e[0],e[1]);}
+      ctx.closePath();ctx.fill();ctx.globalAlpha=1;
+      var e2=sc([mxy[0]+Math.sin(cur[k]*D2R)*L,mxy[1]+Math.cos(cur[k]*D2R)*L]);
+      ctx.strokeStyle=l[1];ctx.lineWidth=2*d;ctx.setLineDash([10*d,7*d]);ctx.beginPath();ctx.moveTo(m0[0],m0[1]);ctx.lineTo(e2[0],e2[1]);ctx.stroke();
+    });
+    ctx.setLineDash([2*d,6*d]);ctx.strokeStyle=col("--muted");ctx.lineWidth=1.5*d;
+    var b0=sc([0,0]);ctx.beginPath();ctx.moveTo(b0[0],b0[1]);ctx.lineTo(m0[0],m0[1]);ctx.stroke();ctx.setLineDash([]);
+    // where each heading meets its layline, with time and distance written there
+    var li=layInfo()||{};
+    [["port",col("--port")],["stbd",col("--stbd")]].forEach(function(q){
+      var x=li[q[0]];if(!x||!x.hit)return;
+      var hp=sc(x.pt),lt=layText(x);
+      ctx.strokeStyle=q[1];ctx.lineWidth=1.4*d;ctx.setLineDash(x.mode==="this tack"?[5*d,5*d]:[1.5*d,5*d]);
+      ctx.beginPath();ctx.moveTo(b0[0],b0[1]);ctx.lineTo(hp[0],hp[1]);ctx.stroke();ctx.setLineDash([]);
+      ctx.lineWidth=2*d;ctx.beginPath();ctx.arc(hp[0],hp[1],6*d,0,2*Math.PI);ctx.stroke();
+      var tx=hp[0]+(hp[0]<W/2?10:-10)*d,al=hp[0]<W/2?"left":"right";
+      ctx.textAlign=al;ctx.font="700 "+(15*d)+"px "+getComputedStyle(document.documentElement).getPropertyValue("--digits");
+      ctx.lineWidth=4*d;ctx.strokeStyle=col("--face");ctx.strokeText(lt.t,tx,hp[1]-2*d);ctx.fillStyle=q[1];ctx.fillText(lt.t,tx,hp[1]-2*d);
+      ctx.font="600 "+(12*d)+"px 'Barlow Condensed', sans-serif";
+      ctx.strokeText(lt.d,tx,hp[1]+13*d);ctx.fillText(lt.d,tx,hp[1]+13*d);
+    });
+  }
+  // track coloured by % of target BSP
+  var pal=PF[theme==="night"?"night":"normal"].stops,prev=null;
+  ctx.lineWidth=3.5*d;ctx.lineCap="round";
+  var tNow=Date.now();
+  hist.forEach(function(h){
+    if(!fin(h.lat)||tNow-h.t>900000){prev=null;return;}
+    var p=sc(nm(h.lat,h.lon));
+    if(prev){ctx.strokeStyle=fin(h.p)?perfColor(h.p,pal):col("--muted");ctx.beginPath();ctx.moveTo(prev[0],prev[1]);ctx.lineTo(p[0],p[1]);ctx.stroke();}
+    prev=p;
+  });
+  // mark
+  if(mxy){var m1=sc(mxy);ctx.fillStyle=col("--target");ctx.beginPath();ctx.arc(m1[0],m1[1],7*d,0,2*Math.PI);ctx.fill();
+    ctx.strokeStyle=col("--target");ctx.lineWidth=1.5*d;ctx.beginPath();ctx.arc(m1[0],m1[1],13*d,0,2*Math.PI);ctx.stroke();
+    var al2=activeLeg();
+    if(al2&&course.auto){ctx.strokeStyle=col("--target");ctx.globalAlpha=0.35;ctx.setLineDash([3*d,4*d]);ctx.beginPath();ctx.arc(m1[0],m1[1],course.radius/1852*s,0,2*Math.PI);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;}
+    if(al2){ctx.font="700 "+(13*d)+"px 'Barlow Condensed', sans-serif";ctx.textAlign="center";ctx.fillStyle=al2.leg.side==="S"?col("--stbd"):col("--port");
+      ctx.fillText(al2.leg.side==="S"?"leave to STBD":"leave to PORT",m1[0],m1[1]+28*d);}}
+  // boat, with a 1-minute COG/SOG vector
+  var bp=sc([0,0]);
+  function tag(t,x,y,c,sz,al){ctx.font="700 "+(sz*d)+"px "+cs.getPropertyValue("--digits");ctx.textAlign=al||"center";ctx.textBaseline="middle";
+    ctx.lineWidth=4*d;ctx.strokeStyle=col("--face");ctx.strokeText(t,x,y);ctx.fillStyle=c;ctx.fillText(t,x,y);ctx.textBaseline="alphabetic";}
+  function ray(brg,len){return [bp[0]+Math.sin(brg*D2R)*len,bp[1]-Math.cos(brg*D2R)*len];}
+  // crossing bearings: ladder rungs square to the wind; an opposite-tack boat bearing exactly this is even with you
+  if(fin(S.twd)){
+    var RL=Math.min(W,H)*0.28;
+    [wrap360(S.twd+90),wrap360(S.twd-90)].forEach(function(b){
+      var e=ray(b,RL),e2=ray(b,RL+30*d);
+      ctx.strokeStyle=col("--ink");ctx.globalAlpha=0.55;ctx.lineWidth=1.2*d;ctx.setLineDash([3*d,4*d]);
+      ctx.beginPath();ctx.moveTo(bp[0],bp[1]);ctx.lineTo(e[0],e[1]);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;
+      tag("CROSS "+deg3(b),e2[0],e2[1],col("--ink"),13);
+    });
+  }
+  // COG on the opposite tack/gybe: target heading and speed through the water, plus the current measured now
+  if(fin(S.twd)&&fin(S.tws)&&fin(S.twa)){
+    var Tt=targets(S.tws),upw=Math.abs(S.twa)<90,g2=upw?Tt.up:Tt.dn,side=S.twa>=0?1:-1;
+    var oh=wrap360(S.twd+side*g2.twa),wx2=Math.sin(oh*D2R)*g2.bsp,wy2=Math.cos(oh*D2R)*g2.bsp;
+    if(fin(S.sog)&&fin(S.cog)&&fin(S.bsp)&&fin(S.hdg)){
+      wx2+=Math.sin(S.cog*D2R)*S.sog-Math.sin(S.hdg*D2R)*S.bsp;wy2+=Math.cos(S.cog*D2R)*S.sog-Math.cos(S.hdg*D2R)*S.bsp;}
+    var ocog=wrap360(Math.atan2(wx2,wy2)*R2D),oc=side>0?col("--port"):col("--stbd"),OL=Math.min(W,H)*0.22;
+    var e3=ray(ocog,OL),e4=ray(ocog,OL+34*d);
+    ctx.strokeStyle=oc;ctx.lineWidth=2.5*d;ctx.beginPath();ctx.moveTo(bp[0],bp[1]);ctx.lineTo(e3[0],e3[1]);ctx.stroke();
+    tag((upw?"TACK ":"GYBE ")+deg3(ocog),e4[0],e4[1],oc,14);
+    if(fin(S.cog)){var e5=ray(S.cog,OL+34*d);tag("COG "+deg3(S.cog),e5[0],e5[1],col("--ink"),14);}
+  }
+  if(fin(S.cog)&&fin(S.sog)){var v=sc([Math.sin(S.cog*D2R)*S.sog/60,Math.cos(S.cog*D2R)*S.sog/60]);
+    ctx.strokeStyle=col("--ink");ctx.lineWidth=1.5*d;ctx.beginPath();ctx.moveTo(bp[0],bp[1]);ctx.lineTo(v[0],v[1]);ctx.stroke();}
+  ctx.save();ctx.translate(bp[0],bp[1]);ctx.rotate((S.hdg||0)*D2R);
+  ctx.fillStyle=col("--ink");ctx.beginPath();ctx.moveTo(0,-15*d);ctx.lineTo(7*d,10*d);ctx.lineTo(0,6*d);ctx.lineTo(-7*d,10*d);ctx.closePath();ctx.fill();ctx.restore();
+  // AIS targets: who is ahead on the wind axis, and a CPA warning
+  var nowA=Date.now(),wv=fin(S.twd)?[Math.sin(S.twd*D2R),Math.cos(S.twd*D2R)]:null,goingUp=!fin(S.twa)||Math.abs(S.twa)<90;
+  var me=fin(S.cog)&&fin(S.sog)?[Math.sin(S.cog*D2R)*S.sog,Math.cos(S.cog*D2R)*S.sog]:[0,0];
+  Object.keys(ais).forEach(function(key){
+    var a=ais[key];if(!fin(a.lat)||nowA-a.t>180000)return;
+    var R0=nm(a.lat,a.lon),p=sc(R0),hd=fin(a.hdg)?a.hdg:a.cog;
+    var vt=fin(a.cog)&&fin(a.sog)?[Math.sin(a.cog*D2R)*a.sog,Math.cos(a.cog*D2R)*a.sog]:[0,0];
+    // closest point of approach
+    var V=[vt[0]-me[0],vt[1]-me[1]],vv=V[0]*V[0]+V[1]*V[1],tc=vv>1e-6?-(R0[0]*V[0]+R0[1]*V[1])/vv:0;
+    var cpa=tc>0?Math.hypot(R0[0]+V[0]*tc,R0[1]+V[1]*tc):Math.hypot(R0[0],R0[1]),warn=tc>0&&tc<0.1&&cpa<0.05;
+    if(fin(a.cog)&&fin(a.sog)){var q=sc([R0[0]+vt[0]/60,R0[1]+vt[1]/60]);
+      ctx.strokeStyle=col("--accent");ctx.lineWidth=1.2*d;ctx.beginPath();ctx.moveTo(p[0],p[1]);ctx.lineTo(q[0],q[1]);ctx.stroke();}
+    ctx.save();ctx.translate(p[0],p[1]);ctx.rotate((hd||0)*D2R);
+    ctx.strokeStyle=warn?col("--port"):col("--accent");ctx.lineWidth=2*d;ctx.beginPath();
+    ctx.moveTo(0,-12*d);ctx.lineTo(6*d,8*d);ctx.lineTo(-6*d,8*d);ctx.closePath();ctx.stroke();ctx.restore();
+    var nmName=(a.name||a.mmsi||"AIS").toString().slice(0,14);
+    tag(nmName,p[0]+10*d,p[1]-9*d,col("--accent"),11,"left");
+    if(wv){var up=(R0[0]*wv[0]+R0[1]*wv[1])*1852*(goingUp?1:-1);
+      tag((up>=0?"+":"−")+Math.abs(Math.round(up))+" m",p[0]+10*d,p[1]+7*d,up>=0?col("--port"):col("--stbd"),12,"left");}
+    if(warn){ctx.strokeStyle=col("--port");ctx.lineWidth=2*d;ctx.beginPath();ctx.arc(p[0],p[1],18*d,0,2*Math.PI);ctx.stroke();
+      tag("CPA "+Math.round(cpa*1852)+" m "+fmtTime(tc*3600),p[0]+10*d,p[1]+23*d,col("--port"),12,"left");}
+  });
+  // wind arrow and north, top left
+  var wx=34*d,wy=34*d;ctx.strokeStyle=col("--line");ctx.lineWidth=1*d;ctx.beginPath();ctx.arc(wx,wy,24*d,0,2*Math.PI);ctx.stroke();
+  if(fin(S.twd)){ctx.save();ctx.translate(wx,wy);ctx.rotate((S.twd+180)*D2R);ctx.strokeStyle=col("--accent");ctx.fillStyle=col("--accent");ctx.lineWidth=3*d;
+    ctx.beginPath();ctx.moveTo(0,20*d);ctx.lineTo(0,-12*d);ctx.stroke();ctx.beginPath();ctx.moveTo(0,-20*d);ctx.lineTo(7*d,-9*d);ctx.lineTo(-7*d,-9*d);ctx.closePath();ctx.fill();ctx.restore();}
+  ctx.fillStyle=col("--muted");ctx.font="700 "+(11*d)+"px 'Barlow Condensed', sans-serif";ctx.textAlign="center";ctx.fillText("N",wx,wy-27*d);
+  // scale bar, bottom left
+  var sx=12*d,sy=H-14*d;ctx.strokeStyle=col("--ink");ctx.lineWidth=2*d;ctx.beginPath();ctx.moveTo(sx,sy-5*d);ctx.lineTo(sx,sy);ctx.lineTo(sx+step*s,sy);ctx.lineTo(sx+step*s,sy-5*d);ctx.stroke();
+  ctx.fillStyle=col("--ink");ctx.textAlign="left";ctx.font="600 "+(12*d)+"px 'Barlow Condensed', sans-serif";ctx.fillText(step+" nm grid",sx,sy-9*d);
+}
+function setView(v){
+  view=v;save("view",v);
+  $("mapView").hidden=v!=="map";$("startView").hidden=v!=="start";document.querySelector(".main").hidden=v!=="inst";
+  $("vInst").setAttribute("aria-pressed",v==="inst");$("vMap").setAttribute("aria-pressed",v==="map");$("vStart").setAttribute("aria-pressed",v==="start");
+  if(v==="map"){sizeMap();renderMapNums();drawMap();}
+  if(v==="start"){if(source==="sim"&&!(line&&line.pin&&line.boat))demoLine();sizeCanvas($("stmap"));renderStart(Date.now());drawStart();}
+}
+$("vInst").onclick=function(){setView("inst");};
+$("vMap").onclick=function(){setView("map");};
+$("vStart").onclick=function(){setView("start");};
+$("zIn").onclick=function(){mapFit=false;mapS*=1.5;drawMap();$("zFit").setAttribute("aria-pressed","false");};
+$("zOut").onclick=function(){mapFit=false;mapS/=1.5;drawMap();$("zFit").setAttribute("aria-pressed","false");};
+$("zFit").onclick=function(){mapFit=true;drawMap();$("zFit").setAttribute("aria-pressed","true");};
+$("map").addEventListener("wheel",function(e){e.preventDefault();mapFit=false;mapS*=e.deltaY<0?1.15:1/1.15;$("zFit").setAttribute("aria-pressed","false");drawMap();},{passive:false});
+
+
+/* ---------- NMEA 0183 over TCP/UDP, via the local bridge ---------- */
+var es=null;
+function nmMsg(t,c){var m=$("nmMsg");m.textContent=t;m.className="msg "+(c||"");}
+function disconnectNM(){if(es){try{es.close();}catch(e){}es=null;}}
+function connectNM(){
+  disconnectNM();raw={};S={};hist=[];ais={};
+  var proto=$("nmProto").value,host=$("nmHost").value.trim(),port=Number($("nmPort").value),br=LOCAL?location.origin:$("nmBridge").value.trim().replace(/\/$/,"");
+  if(proto==="tcp"&&!/^[\w.\-]+$/.test(host)){nmMsg("Enter the IP address of the NMEA source.","err");return;}
+  if(!(port>0&&port<65536)){nmMsg("Enter a port between 1 and 65535.","err");return;}
+  if(!/^https?:\/\//.test(br)){nmMsg("Bridge address must start with http://","err");return;}
+  save("nmea",{proto:proto,host:host,port:port,bridge:br});
+  setPill("err","Connecting");nmMsg("Asking the bridge to open "+proto.toUpperCase()+" "+(host||"*")+":"+port+" …");
+  fetch(br+"/connect?proto="+proto+"&host="+encodeURIComponent(host)+"&port="+port).then(function(r){return r.json();}).then(function(j){
+    if(!j.ok){nmMsg((LOCAL?"":"Bridge: ")+j.error,"err");setPill("err","Not connected");return;}
+    es=new EventSource(br+"/stream");var n=0;
+    es.onmessage=function(ev){n++;parseNMEA(ev.data);if(n===1){save("src","nmea");setPill("live","Live, NMEA "+proto.toUpperCase());nmMsg("Receiving data.","ok");}};
+    es.addEventListener("status",function(ev){var st=JSON.parse(ev.data);if(!st.connected){setPill("err","Source not reachable");nmMsg((LOCAL?"Cannot reach ":"Bridge cannot reach ")+(host||"*")+":"+port+": "+(st.error||"retrying")+". Retrying every 3 s.","err");}});
+    es.onerror=function(){setPill("err",LOCAL?"Connection lost":"Bridge lost");nmMsg(LOCAL?"Lost the internal data connection. Restart MaxRace if this persists.":"Lost the bridge at "+br+". Is maxrace_bridge.py still running?","err");};
+  }).catch(function(){setPill("err","No bridge");nmMsg("No bridge at "+br+". Start maxrace_bridge.py on the laptop or Pi and check the address.","err");});
+}
+function nmNum(x){var v=parseFloat(x);return isFinite(v)?v:NaN;}
+function nmLat(v,h){if(!v)return NaN;var d=Math.floor(v/100),m=v-d*100;return (d+m/60)*(h==="S"?-1:1);}
+function nmChecksum(line){
+  var i=line.indexOf("*");if(i<0)return true;
+  var c=0;for(var k=1;k<i;k++)c^=line.charCodeAt(k);
+  return parseInt(line.slice(i+1,i+3),16)===c;
+}
+var aisParts={};
+function parseNMEA(line){
+  line=line.trim();if(!/^[$!]/.test(line)||!nmChecksum(line))return;
+  var body=line.split("*")[0],f=body.split(","),id=f[0].slice(3),talk=f[0];
+  if(talk==="!AIVDM"){aisSentence(f);return;}
+  if(talk==="!AIVDO")return;
+  var kn=function(v,u){return u==="M"?v*KN:u==="K"?v/1.852:v;};
+  switch(id){
+    case "MWV":{var a=nmNum(f[1]),sp=kn(nmNum(f[3]),f[4]);if(f[5]!=="A")break;
+      if(f[2]==="R"){raw.awa=wrap180(a);raw.aws=sp;}else if(f[2]==="T"){raw.twa=wrap180(a);raw.tws=sp;raw._t=1;}break;}
+    case "MWD":{var d=nmNum(f[1]);if(fin(d)){raw.twd=wrap360(d);raw._d=1;}var w=nmNum(f[5]);if(fin(w))raw.tws=w;break;}
+    case "VHW":{var b=nmNum(f[5]);if(fin(b))raw.bsp=b;var ht=nmNum(f[1]);if(fin(ht)&&!raw._h){raw.hdg=ht;}break;}
+    case "HDT":{var h=nmNum(f[1]);if(fin(h)){raw.hdg=h;raw._h=1;}break;}
+    case "HDG":{var hm=nmNum(f[1]),vr=nmNum(f[4]);if(fin(hm)&&!raw._h){raw.hdg=wrap360(hm+(fin(vr)?(f[5]==="W"?-vr:vr):0));}break;}
+    case "HDM":{var h2=nmNum(f[1]);if(fin(h2)&&!raw._h)raw.hdg=h2;break;}
+    case "VTG":{var c=nmNum(f[1]),so=nmNum(f[5]);if(fin(c))raw.cog=c;if(fin(so))raw.sog=so;break;}
+    case "RMC":{if(f[2]!=="A")break;var la=nmLat(nmNum(f[3]),f[4]),lo=nmLat(nmNum(f[5]),f[6]);if(fin(la)){raw.lat=la;raw.lon=lo;}
+      var s2=nmNum(f[7]),c2=nmNum(f[8]);if(fin(s2))raw.sog=s2;if(fin(c2))raw.cog=c2;break;}
+    case "GLL":{if(f[6]&&f[6]!=="A")break;var la2=nmLat(nmNum(f[1]),f[2]),lo2=nmLat(nmNum(f[3]),f[4]);if(fin(la2)){raw.lat=la2;raw.lon=lo2;}break;}
+    case "RMB":{if(f[1]!=="A")break;var ml=nmLat(nmNum(f[6]),f[7]),mo=nmLat(nmNum(f[8]),f[9]);if(fin(ml)){raw.mlat=ml;raw.mlon=mo;raw._m=1;}
+      var rg=nmNum(f[10]),br2=nmNum(f[11]),vm=nmNum(f[12]);if(fin(rg))raw.dtw=rg;if(fin(br2)){raw.btw=br2;raw._b=1;}if(fin(vm))raw.vmc=vm;break;}
+    case "XDR":{for(var k=1;k+3<f.length;k+=4){var nmx=(f[k+3]||"").toUpperCase();if(f[k]==="A"&&/ROLL|HEEL/.test(nmx)){var r=nmNum(f[k+1]);if(fin(r))raw.heel=r;}}break;}
+  }
+}
+// AIS: position reports (1,2,3,18) and names (5,19,24A)
+function aisSentence(f){
+  var tot=+f[1],num=+f[2],seq=f[3]||"0",pl=f[5];
+  if(tot>1){var k=seq+f[4];aisParts[k]=aisParts[k]||[];aisParts[k][num-1]=pl;
+    if(aisParts[k].filter(Boolean).length<tot)return;pl=aisParts[k].join("");delete aisParts[k];}
+  var bits="";for(var i=0;i<pl.length;i++){var v=pl.charCodeAt(i)-48;if(v>40)v-=8;bits+=("00000"+v.toString(2)).slice(-6);}
+  var u=function(s,l){return parseInt(bits.substr(s,l),2);};
+  var sgn=function(s,l){var x=u(s,l);return x>=Math.pow(2,l-1)?x-Math.pow(2,l):x;};
+  var txt=function(s,l){var o="";for(var j=0;j<l;j+=6){var c=u(s+j,6);o+=String.fromCharCode(c<32?c+64:c);}return o.replace(/[@\s]+$/,"").trim();};
+  var type=u(0,6),mmsi=String(u(8,30)),key="ais:"+mmsi,a=ais[key]||(ais[key]={mmsi:mmsi,name:null});
+  var pos=function(lonB,latB,sogB,cogB,hdgB){
+    var lo=sgn(lonB,28)/600000,la=sgn(latB,27)/600000;if(Math.abs(lo)>180||Math.abs(la)>90)return;
+    a.lat=la;a.lon=lo;a.t=Date.now();var sg=u(sogB,10),cg=u(cogB,12),hd=u(hdgB,9);
+    a.sog=sg===1023?NaN:sg/10;a.cog=cg>=3600?NaN:cg/10;a.hdg=hd===511?NaN:hd;
+  };
+  if(type>=1&&type<=3)pos(61,89,50,116,128);
+  else if(type===18)pos(57,85,46,112,124);
+  else if(type===19){pos(57,85,46,112,124);a.name=txt(143,120)||a.name;}
+  else if(type===5&&bits.length>=232)a.name=txt(112,120)||a.name;
+  else if(type===24&&u(38,2)===0)a.name=txt(40,120)||a.name;
+}
+
+
+/* ---------- course: marks, sequence, active waypoint ---------- */
+function saveCourse(){save("course",course);}
+function markById(id){for(var i=0;i<course.marks.length;i++)if(course.marks[i].id===id)return course.marks[i];return null;}
+function activeLeg(){var l=course.seq[course.idx];return l?{leg:l,mark:markById(l.id)}:null;}
+function activeMark(){var a=activeLeg();return a&&a.mark?a.mark:null;}
+function seqMarks(){return course.seq.map(function(l){return markById(l.id);}).filter(Boolean);}
+function esc(t){return String(t).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+function parseCoord(str,isLat){
+  var t=String(str||"").trim().toUpperCase().replace(/,/g,".");
+  if(!t)return NaN;
+  var hem=(t.match(/[NSEWO]/)||[])[0],neg=/^\s*-/.test(t)||hem==="S"||hem==="W"||hem==="O";
+  if(hem&&(isLat?/[EWO]/.test(hem):/[NS]/.test(hem)))return NaN;
+  var n=t.match(/\d+(?:\.\d+)?/g);if(!n||n.length>3)return NaN;
+  if(n[1]&&+n[1]>=60||n[2]&&+n[2]>=60)return NaN;
+  var v=+n[0]+(n[1]?+n[1]/60:0)+(n[2]?+n[2]/3600:0);
+  if(v>(isLat?90:180))return NaN;
+  return neg?-v:v;
+}
+function fmtCoord(v,isLat){
+  if(!fin(v))return "--";
+  var a=Math.abs(v),dg=Math.floor(a),mn=(a-dg)*60;
+  if(mn>=59.9995){dg++;mn=0;}
+  return (isLat?("0"+dg).slice(-2):("00"+dg).slice(-3))+"°"+("0"+mn.toFixed(3)).slice(-6)+"'"+(isLat?(v<0?"S":"N"):(v<0?"W":"E"));
+}
+function addMark(name,lat,lon,toSeq){
+  var id="m"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  course.marks.push({id:id,name:(name||"MARK "+(course.marks.length+1)).toUpperCase().slice(0,20),lat:lat,lon:lon});
+  if(toSeq)course.seq.push({id:id,side:"P"});
+  return id;
+}
+function crsMsg(t,c){var m=$("crsMsg");m.textContent=t;m.className="msg "+(c||"");}
+function setActive(i,why){
+  course.idx=Math.max(0,Math.min(course.seq.length,i));rnd={armed:false,min:Infinity};saveCourse();renderCourse();
+  if(why)toast(why);
+}
+var toastT=0;
+function toast(t){$("mkToast").textContent=t;$("mkToast").hidden=false;toastT=Date.now();}
+// the active course mark replaces the instrument waypoint
+function applyCourse(){
+  var m=activeMark();if(!m)return;
+  raw.mlat=m.lat;raw.mlon=m.lon;raw._m=1;
+  delete raw.vmc;delete raw.dtw;S.vmc=NaN;S.dtw=NaN;
+  var la=fin(raw.lat)?raw.lat:S.lat,lo=fin(raw.lon)?raw.lon:S.lon;
+  if(fin(la))raw.btw=bearDist(la,lo,m.lat,m.lon).b;
+}
+// rounding: arm inside the radius; advance once the distance opens again by 30 m
+// AND the bearing to the mark has swung at least 60 deg since arming (so tacking away near the mark does not count)
+function courseTick(now){
+  if(toastT&&now-toastT>10000){$("mkToast").hidden=true;toastT=0;}
+  var m=activeMark();if(!m||!course.auto||!fin(S.lat))return;
+  var bd=bearDist(S.lat,S.lon,m.lat,m.lon),dm=bd.d*1852;
+  if(dm<=course.radius){if(!rnd.armed)rnd.b0=bd.b;rnd.armed=true;rnd.min=Math.min(rnd.min,dm);}
+  if(rnd.armed&&dm>rnd.min+30&&Math.abs(wrap180(bd.b-rnd.b0))>=60)roundedActive();
+}
+function roundedActive(){
+  var a=activeLeg();if(!a)return;
+  var nx=course.seq[course.idx+1],nm2=nx&&markById(nx.id);
+  setActive(course.idx+1,"ROUNDED "+(a.mark?a.mark.name:"")+(nm2?"  →  "+nm2.name:"  ·  COURSE COMPLETE"));
+}
+function renderCourse(){
+  var a=activeLeg(),n=course.seq.length;
+  $("crsName").textContent=!n?"NO COURSE":a&&a.mark?(course.idx+1)+"/"+n+"  "+a.mark.name+"  "+(a.leg.side==="S"?"STBD":"PORT"):"FINISHED";
+  $("crsName").className="crsname"+(a&&a.leg.side==="S"?" s":a?" p":"");
+  $("seqList").innerHTML=n?course.seq.map(function(l,i){
+    var m=markById(l.id),cls=i===course.idx?"on":i<course.idx?"done":"";
+    return '<li class="'+cls+'"><span class="nr">'+(i+1)+'</span><b>'+esc(m?m.name:"?")+'</b>'+
+      '<button class="btn sd '+(l.side==="S"?"s":"p")+'" data-a="side" data-i="'+i+'">'+(l.side==="S"?"Stbd":"Port")+'</button>'+
+      '<button class="btn" data-a="up" data-i="'+i+'" aria-label="Move up">↑</button><button class="btn" data-a="dn" data-i="'+i+'" aria-label="Move down">↓</button>'+
+      '<button class="btn" data-a="go" data-i="'+i+'">'+(i===course.idx?"Active":"Go")+'</button><button class="btn" data-a="rm" data-i="'+i+'" aria-label="Remove from sequence">✕</button></li>';
+  }).join(""):'<li class="empty">No marks in the sequence yet. Add marks below, then add them here with "+ sequence".</li>';
+  $("mkList").innerHTML=course.marks.length?course.marks.map(function(m){
+    return '<li><b>'+esc(m.name)+'</b><span>'+fmtCoord(m.lat,true)+'  '+fmtCoord(m.lon,false)+'</span>'+
+      '<button class="btn" data-a="add" data-id="'+m.id+'">+ sequence</button><button class="btn" data-a="del" data-id="'+m.id+'">Delete</button></li>';
+  }).join(""):'<li class="empty">No marks yet.</li>';
+  $("autoAdv").checked=!!course.auto;$("rndR").value=course.radius;
+  $("crsDemo").hidden=source!=="sim";
+}
+$("seqList").onclick=function(e){
+  var b=e.target.closest("button");if(!b)return;var i=+b.getAttribute("data-i"),a=b.getAttribute("data-a"),q=course.seq;
+  if(a==="side")q[i].side=q[i].side==="S"?"P":"S";
+  else if(a==="up"&&i>0){var t=q[i-1];q[i-1]=q[i];q[i]=t;if(course.idx===i)course.idx--;else if(course.idx===i-1)course.idx++;}
+  else if(a==="dn"&&i<q.length-1){var t2=q[i+1];q[i+1]=q[i];q[i]=t2;if(course.idx===i)course.idx++;else if(course.idx===i+1)course.idx--;}
+  else if(a==="go"){setActive(i);return;}
+  else if(a==="rm"){q.splice(i,1);if(course.idx>i)course.idx--;course.idx=Math.min(course.idx,q.length);rnd={armed:false,min:Infinity};}
+  saveCourse();renderCourse();
+};
+$("mkList").onclick=function(e){
+  var b=e.target.closest("button");if(!b)return;var id=b.getAttribute("data-id"),a=b.getAttribute("data-a");
+  if(a==="add"){course.seq.push({id:id,side:"P"});}
+  else if(a==="del"){
+    var m=markById(id);if(!confirm("Delete "+(m?m.name:"this mark")+" and remove it from the sequence?"))return;
+    course.marks=course.marks.filter(function(x){return x.id!==id;});
+    var before=course.seq.slice(0,course.idx).filter(function(l){return l.id===id;}).length;
+    course.seq=course.seq.filter(function(l){return l.id!==id;});course.idx=Math.max(0,Math.min(course.idx-before,course.seq.length));
+  }
+  saveCourse();renderCourse();
+};
+$("mkAdd").onclick=function(){
+  var la=parseCoord($("mkLat").value,true),lo=parseCoord($("mkLon").value,false);
+  if(!fin(la)){crsMsg("Latitude not recognised. Example: 43°36.072'N","err");return;}
+  if(!fin(lo)){crsMsg("Longitude not recognised. Example: 007°24.000'E","err");return;}
+  addMark($("mkName").value.trim(),la,lo,false);saveCourse();renderCourse();
+  crsMsg("Added "+fmtCoord(la,true)+" "+fmtCoord(lo,false)+". Add it to the sequence with “+ sequence”.","ok");
+  $("mkName").value="";$("mkLat").value="";$("mkLon").value="";
+};
+$("mkHere").onclick=function(){
+  if(!fin(S.lat)){crsMsg("No GPS position yet.","err");return;}
+  addMark($("mkName").value.trim(),S.lat,S.lon,false);saveCourse();renderCourse();$("mkName").value="";
+  crsMsg("Mark added at the boat position (GPS antenna, not the bow).","ok");
+};
+function parseMarkLine(line){
+  var f=line.split(/\t|;|\|/).map(function(x){return x.trim();});
+  if(f.length<3){var m=line.match(/^(.*?)\s+(-?\d[\d°º'’"″.,\s]*[NS])\s*[,]?\s*(-?\d[\d°º'’"″.,\s]*[EWO])\s*$/i);if(m)f=[m[1],m[2],m[3]];}
+  if(f.length<3)f=line.split(/\s*,\s*/);
+  if(f.length<3)return null;
+  var la=parseCoord(f[1],true),lo=parseCoord(f[2],false);
+  return fin(la)&&fin(lo)?{name:f[0],lat:la,lon:lo}:null;
+}
+$("crsPasteBtn").onclick=function(){
+  var lines=$("crsPaste").value.split(/\r?\n/).map(function(l){return l.trim();}).filter(Boolean),ok=0,bad=[];
+  lines.forEach(function(l,i){var p=parseMarkLine(l);if(p){addMark(p.name,p.lat,p.lon,true);ok++;}else bad.push(i+1);});
+  saveCourse();renderCourse();
+  crsMsg(ok+" mark"+(ok===1?"":"s")+" added"+(bad.length?". Not recognised: line "+bad.join(", "):"."),bad.length?"err":"ok");
+  if(!bad.length)$("crsPaste").value="";
+};
+$("crsClear").onclick=function(){if(!confirm("Clear all marks and the sequence?"))return;course.marks=[];course.seq=[];course.idx=0;saveCourse();renderCourse();};
+$("crsDemo").onclick=function(){
+  if(!fin(S.lat)){crsMsg("No position yet.","err");return;}
+  course.marks=[];course.seq=[];course.idx=0;
+  var w=addMark("WINDWARD",0,0,false),l=addMark("LEEWARD",0,0,false),wp=dest(S.lat,S.lon,225,1.3),lp=dest(S.lat,S.lon,45,0.1);
+  markById(w).lat=wp.lat;markById(w).lon=wp.lon;markById(l).lat=lp.lat;markById(l).lon=lp.lon;
+  course.seq=[{id:w,side:"P"},{id:l,side:"P"},{id:w,side:"P"},{id:l,side:"P"}];
+  if(sim.fleet)sim.fleet.forEach(function(b){b.ci=0;});
+  rnd={armed:false,min:Infinity};saveCourse();renderCourse();crsMsg("Windward-leeward, 2 laps, 1.4 nm legs.","ok");
+};
+$("autoAdv").onchange=function(e){course.auto=e.target.checked;saveCourse();};
+$("rndR").onchange=function(e){var n=Number(e.target.value);if(fin(n)&&n>=10&&n<=1000){course.radius=n;saveCourse();}else e.target.value=course.radius;};
+$("mkPrev").onclick=function(){if(course.seq.length)setActive(course.idx-1);};
+$("mkNext").onclick=function(){if(course.seq.length)setActive(course.idx+1);};
+
+/* ---------- mark from bearing and distance ---------- */
+function bdMsg(t,c){var m=$("bdMsg");m.textContent=t;m.className="msg "+(c||"");}
+function parseVar(t){
+  t=String(t||"").trim().toUpperCase().replace(/,/g,".");if(!t)return 0;
+  var n=t.match(/\d+(?:\.\d+)?/);if(!n)return NaN;var v=+n[0];if(v>60)return NaN;
+  return /W|O|^-/.test(t)?-v:v;     // east positive: true = magnetic + variation
+}
+function bdOrigins(){
+  var o=[];
+  if(fin(S.lat))o.push({k:"boat",n:"Boat (GPS)",lat:S.lat,lon:S.lon});
+  if(line&&line.pin&&line.boat){
+    var mid={lat:(line.pin.lat+line.boat.lat)/2,lon:(line.pin.lon+line.boat.lon)/2};
+    o.push({k:"rc",n:"Start line, boat end",lat:line.boat.lat,lon:line.boat.lon},{k:"pin",n:"Start line, pin",lat:line.pin.lat,lon:line.pin.lon},{k:"mid",n:"Start line, middle",lat:mid.lat,lon:mid.lon});
+  }
+  course.marks.forEach(function(m){o.push({k:"mk:"+m.id,n:m.name,lat:m.lat,lon:m.lon});});
+  return o;
+}
+function fillBdFrom(){
+  var sel=$("bdFrom"),cur=sel.value||course.bdFrom||"",o=bdOrigins();
+  sel.innerHTML=o.length?o.map(function(x){return '<option value="'+esc(x.k)+'">'+esc(x.n)+'</option>';}).join(""):'<option value="">no reference yet</option>';
+  if(o.some(function(x){return x.k===cur;}))sel.value=cur;
+  $("bdRef").value=course.bdRef||"T";$("bdVar").value=course.bdVar||"";
+}
+$("bdTwd").onclick=function(){
+  if(!fin(S.twd)){bdMsg("No true wind direction yet.","err");return;}
+  $("bdRef").value="T";$("bdBrg").value=Math.round(S.twd);bdMsg("Bearing set to the current TWD, "+deg3(S.twd)+" true.","ok");
+};
+$("bdAdd").onclick=function(){
+  var o=bdOrigins().filter(function(x){return x.k===$("bdFrom").value;})[0];
+  if(!o){bdMsg("Choose the reference point.","err");return;}
+  var b=Number(String($("bdBrg").value).replace(",","."));
+  if(!(fin(b)&&b>=0&&b<=360)){bdMsg("Bearing must be 0 to 360.","err");return;}
+  var ref=$("bdRef").value,vr=parseVar($("bdVar").value);
+  if(ref==="M"&&!fin(vr)){bdMsg("Variation not recognised. Example: 3.5E or 1.2W.","err");return;}
+  var bt=wrap360(ref==="M"?b+vr:b);
+  var dd=Number(String($("bdDist").value).replace(",",".")),unit=$("bdUnit").value;
+  if(!(fin(dd)&&dd>0)){bdMsg("Enter a distance greater than 0.","err");return;}
+  var nm=unit==="m"?dd/1852:dd;if(nm>50){bdMsg("Distance over 50 nm: check the unit.","err");return;}
+  var p=dest(o.lat,o.lon,bt,nm),name=$("bdName").value.trim()||(Math.round(b)+"° "+dd+unit);
+  addMark(name,p.lat,p.lon,$("bdSeq").checked);
+  course.bdFrom=o.k;course.bdRef=ref;course.bdVar=$("bdVar").value.trim();
+  saveCourse();renderCourse();fillBdFrom();
+  bdMsg(name.toUpperCase()+": "+fmtCoord(p.lat,true)+" "+fmtCoord(p.lon,false)+", "+(unit==="m"?Math.round(dd)+" m":dd+" nm")+" at "+deg3(bt)+" true from "+o.n+".","ok");
+  $("bdName").value="";
+};
+$("crsBtn").onclick=function(){renderCourse();fillBdFrom();crsMsg("");bdMsg("");$("crsDlg").showModal();};
+$("crsClose").onclick=function(){$("crsDlg").close();};
+$("openCrs").onclick=function(){$("dlg").close();renderCourse();fillBdFrom();crsMsg("");bdMsg("");$("crsDlg").showModal();};
+renderCourse();
+
+/* ---------- start line ---------- */
+var manv=load("manv",{rate:8,tack:6,luff:2}), line=load("line",null), lineDemo=false, cd={run:false,end:0,rem:NaN}, bowOff=load("bow",0);
+function sizeCanvas(c){var r=c.parentNode.getBoundingClientRect(),d=window.devicePixelRatio||1;c.width=Math.max(1,Math.round(r.width*d));c.height=Math.max(1,Math.round(r.height*d));}
+if(window.ResizeObserver)new ResizeObserver(function(){if(view==="start"){sizeCanvas($("stmap"));drawStart();}}).observe($("stBox"));
+function bowPos(){
+  if(!fin(S.lat))return null;
+  return bowOff>0&&fin(S.hdg)?dest(S.lat,S.lon,S.hdg,bowOff/1852):{lat:S.lat,lon:S.lon};
+}
+function sMsg(t){$("sMsg").textContent=t;}
+function ping(which){
+  var p=bowPos();if(!p){sMsg("No GPS position yet, cannot ping.");return;}
+  if(lineDemo){line={};lineDemo=false;}
+  line=line||{};line[which]=p;save("line",line);
+  sMsg((which==="pin"?"Pin":"Boat end")+" pinged."+(line.pin&&line.boat?"":" Now ping the "+(which==="pin"?"boat end":"pin")+"."));
+}
+function demoLine(){
+  if(!fin(S.lat)||!fin(S.twd))return;
+  // 0.32 nm (about 590 m) line, square to the mean wind, 0.15 nm upwind of the boat
+  var c0=dest(S.lat,S.lon,225,0.15),c=dest(c0.lat,c0.lon,135,0.1);   // boat starts towards the boat end
+  line={pin:dest(c.lat,c.lon,wrap360(225-90),0.16),boat:dest(c.lat,c.lon,wrap360(225+90),0.16)};
+  lineDemo=true;setCD(240);sim.mode="start";sim.sp="away";
+  sMsg("Simulated start: 590 m line, 4′ countdown. Watch the boat run away, turn and hit the line at the gun.");
+}
+function setCD(sec){cd.run=true;cd.end=Date.now()+sec*1000;}
+function cdRem(now){return cd.run?(cd.end-now)/1000:cd.rem;}
+function fmtCD(sec){
+  if(!fin(sec))return "--:--";
+  var neg=sec<0,a=neg?Math.floor(-sec):Math.ceil(sec),m=Math.floor(a/60),x=a%60;
+  return (neg?"+":"")+m+":"+("0"+x).slice(-2);
+}
+function fmtSigned(sec){if(!fin(sec))return "--";var neg=sec<0,a=Math.abs(sec),m=Math.floor(a/60),x=Math.round(a%60);if(x===60){m++;x=0;}return (neg?"−":"")+m+":"+("0"+x).slice(-2);}
+function startInfo(){
+  var bp=bowPos();if(!line||!line.pin||!line.boat||!bp)return null;
+  var k=Math.cos(bp.lat*D2R);
+  function xy(q){return [(q.lon-bp.lon)*60*k,(q.lat-bp.lat)*60];}
+  var P=xy(line.pin),B=xy(line.boat),v=[B[0]-P[0],B[1]-P[1]],len=Math.hypot(v[0],v[1]);
+  if(len<1e-5)return null;
+  var n=[-v[1]/len,v[0]/len],w=fin(S.twd)?[Math.sin(S.twd*D2R),Math.cos(S.twd*D2R)]:null;
+  if(w){if(n[0]*w[0]+n[1]*w[1]<0)n=[-n[0],-n[1]];}
+  else if(-(P[0]*n[0]+P[1]*n[1])>0)n=[-n[0],-n[1]];
+  var dd=-(P[0]*n[0]+P[1]*n[1]);                       // >0 = on the course side
+  var t=(-P[0]*v[0]-P[1]*v[1])/(len*len);               // 0 at pin, 1 at boat end
+  var u=fin(S.cog)&&fin(S.sog)?[Math.sin(S.cog*D2R)*S.sog,Math.cos(S.cog*D2R)*S.sog]:[0,0];
+  var vn=u[0]*n[0]+u[1]*n[1], ttl=dd<0&&vn>0.2?(-dd)/vn*3600:NaN;
+  var o={P:P,B:B,n:n,len:len,d:dd,t:t,ttl:ttl,vn:vn,u:u,dPin:Math.hypot(P[0],P[1]),dBoat:Math.hypot(B[0],B[1])};
+  if(w){var up=(v[0]*w[0]+v[1]*w[1]);o.fav=up>0?"boat":"pin";o.biasDeg=Math.asin(Math.min(1,Math.abs(up)/len))*R2D;o.adv=Math.abs(up);}
+  // luff up on this tack, or tack, and sail close-hauled at target to the line
+  if(fin(S.twd)&&fin(S.tws)&&fin(S.twa)){
+    var T=targets(S.tws),al=T.up.twa,side=S.twa>=0?1:-1;
+    // manoeuvre: turn on an arc at the set turn rate and current speed, then close-hauled at target;
+    // time = arc + straight leg + the set speed loss. "loss" compares with already being on the new heading at target.
+    var h0=fin(S.hdg)?S.hdg:(fin(S.cog)?S.cog:0),v0=Math.max(1,fin(S.bsp)?S.bsp:(S.sog||0));
+    var go=function(head,tack,isTack){
+      var h=[Math.sin(head*D2R),Math.cos(head*D2R)],hn=h[0]*n[0]+h[1]*n[1];
+      if(!(dd<0&&hn>0.05))return {tack:tack,ok:false};
+      var ideal=((-dd)/hn)/T.up.bsp*3600;
+      var amt=isTack?((head-h0)*side%360+360)%360:Math.abs(wrap180(head-h0)),sgn=isTack?side:(wrap180(head-h0)>=0?1:-1);
+      var arc=[[0,0]],x=0,y=0,hh=h0,stepDeg=2,ds=v0/3600*(stepDeg/manv.rate);
+      for(var a=0;a<amt;a+=stepDeg){hh+=sgn*Math.min(stepDeg,amt-a);x+=Math.sin(hh*D2R)*ds;y+=Math.cos(hh*D2R)*ds;arc.push([x,y]);}
+      var arcT=amt/manv.rate,dE=dd+(x*n[0]+y*n[1]);
+      if(!(dE<0))return {tack:tack,ok:false,arc:arc};
+      var sd=(-dE)/hn,pt=[x+h[0]*sd,y+h[1]*sd],tt=((pt[0]-P[0])*v[0]+(pt[1]-P[1])*v[1])/(len*len);
+      var total=arcT+sd/T.up.bsp*3600+(isTack?manv.tack:manv.luff);
+      return {tack:tack,ok:true,d:sd,time:total,loss:total-ideal,pt:pt,t:tt,arc:arc,turn:amt};
+    };
+    o.luff=go(wrap360(S.twd-side*al),side>0?"stbd":"port",false);
+    o.tackUp=go(wrap360(S.twd+side*al),side>0?"port":"stbd",true);
+    // fastest you could sail straight to a point: polar speed, or the target VMG made good if it is inside the no-go zone
+    var reach=function(E){
+      var dist=Math.hypot(E[0],E[1]),brg=wrap360(Math.atan2(E[0],E[1])*R2D),a=Math.abs(wrap180(S.twd-brg));
+      var mx=a>=al?polarBsp(a,S.tws):T.up.bsp*Math.cos((al-a)*D2R);
+      return {dist:dist,max:mx};
+    };
+    o.toPin=reach(P);o.toBoat=reach(B);
+    o.lay={pinS:wrap360(S.twd-al+180),pinP:wrap360(S.twd+al+180),boatS:wrap360(S.twd-al+180),boatP:wrap360(S.twd+al+180)};
+    // where the boat would be at the gun on each tack: after the manoeuvre, at current speed and at 100% polar
+    var r=cdRem(Date.now());
+    if(fin(r)&&r>0){
+      o.proj=[];
+      [[o.luff,false],[o.tackUp,true]].forEach(function(q){
+        var x=q[0];if(!x||!x.arc)return;
+        var head=x.tack==="stbd"?wrap360(S.twd-al):wrap360(S.twd+al),hv=[Math.sin(head*D2R),Math.cos(head*D2R)];
+        var arcT=x.turn/manv.rate,loss=q[1]?manv.tack:manv.luff;
+        var at=function(spd){
+          if(r<=arcT){var k2=Math.min(x.arc.length-1,Math.round(r/arcT*(x.arc.length-1)));return x.arc[k2];}
+          var e=x.arc[x.arc.length-1],run=Math.max(0,r-arcT-loss)*spd/3600;return [e[0]+hv[0]*run,e[1]+hv[1]*run];
+        };
+        var mk=function(pt){return {pt:pt,dl:(dd+pt[0]*n[0]+pt[1]*n[1])*1852};};
+        o.proj.push({tack:x.tack,cur:mk(at(v0)),pol:mk(at(T.up.bsp))});
+      });
+    }
+  }
+  return o;
+}
+function convexHull(p){
+  p=p.slice().sort(function(a,b){return a[0]-b[0]||a[1]-b[1];});
+  function cr(o,a,b){return (a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);}
+  var lo=[],up=[];
+  p.forEach(function(q){while(lo.length>=2&&cr(lo[lo.length-2],lo[lo.length-1],q)<=0)lo.pop();lo.push(q);});
+  for(var i=p.length-1;i>=0;i--){var q=p[i];while(up.length>=2&&cr(up[up.length-2],up[up.length-1],q)<=0)up.pop();up.push(q);}
+  up.pop();lo.pop();return lo.concat(up);
+}
+function inHull(h,q){
+  for(var i=0;i<h.length;i++){var a=h[i],b=h[(i+1)%h.length];if((b[0]-a[0])*(q[1]-a[1])-(b[1]-a[1])*(q[0]-a[0])<0)return false;}
+  return h.length>2;
+}
+function setTile(id,cls){var e=$(id);e.classList.remove("hot","warn","ok","red");if(cls)e.classList.add(cls);}
+function renderStart(now){
+  var r=cdRem(now),si=startInfo();
+  $("s-cd").textContent=fmtCD(r);
+  $("s-cdsub").textContent=!fin(r)?"set the timer":(cd.run?(r>0?"to the gun":"since the gun"):"stopped");
+  setTile("ts-cd",!fin(r)?null:r<0?"ok":r<=10?"hot":r<=60?"warn":null);
+  if(!si){
+    ["s-dist","s-ttl","s-burn","s-bias"].forEach(function(id){$(id).textContent="--";});
+    $("s-distsub").textContent=line&&(line.pin||line.boat)?"ping the other end":"ping both ends";
+    $("s-burnsub").textContent="--";$("s-biassub").textContent="--";setTile("ts-dist",null);setTile("ts-burn",null);return;
+  }
+  var m=Math.abs(si.d)*1852,ocs=si.d>0;
+  $("s-dist").textContent=m<1000?Math.round(m):(m/1000).toFixed(1)+"k";
+  var where=si.t<0?" beyond pin":si.t>1?" beyond boat end":"";
+  $("s-distsub").textContent=(ocs?"OVER THE LINE":"behind")+where;
+  setTile("ts-dist",ocs&&(!fin(r)||r>0)?"hot":null);
+  $("s-ttl").textContent=fin(si.ttl)?fmtSigned(si.ttl):"--";
+  if(fin(r)&&r>0&&fin(si.ttl)){
+    var burn=r-si.ttl;$("s-burn").textContent=fmtSigned(burn);
+    $("s-burnsub").textContent=burn<0?"late at this speed":"to burn";
+    setTile("ts-burn",burn<0?"ok":"red");
+  } else {$("s-burn").textContent="--";$("s-burnsub").textContent=ocs?"over the line":"not closing on the line";setTile("ts-burn",null);}
+  ["luff","tackUp"].forEach(function(k){
+    var x=si[k],id=k==="luff"?"s-luff":"s-tack";
+    if(!x){$(id).textContent="--";$(id+"sub").textContent="--";return;}
+    $(id).classList.remove("p","s");$(id).classList.add(x.tack==="port"?"p":"s");
+    $(id+"lbl").textContent=(k==="luff"?"LUFF UP ":"TACK UP ")+(x.tack==="port"?"PORT":"STBD");
+    if(!x.ok){$(id).textContent="--";$(id+"sub").textContent=ocs?"over the line":"not reaching the line";return;}
+    $(id).textContent=fmtSigned(x.time);
+    $(id+"sub").innerHTML="loss <b>"+fmtSigned(x.loss)+"</b> · "+(x.t<0?"beyond pin":x.t>1?"beyond boat end":Math.round(x.t*si.len*1852)+" m from pin");
+  });
+  [["toPin","s-pin"],["toBoat","s-boat"]].forEach(function(q){
+    var x=si[q[0]],id=q[1];
+    if(!x){$(id).textContent="--";$(id+"sub").textContent="--";return;}
+    var m=Math.round(x.dist*1852);
+    if(fin(r)&&r>1){var need=x.dist/(r/3600);$(id).textContent=need.toFixed(1);
+      setTile("ts-"+id.slice(2),need<=x.max?"ok":"red");
+      $(id+"sub").innerHTML=m+" m  max <b>"+x.max.toFixed(1)+"</b>";}
+    else{$(id).textContent="--";setTile("ts-"+id.slice(2),null);$(id+"sub").textContent=m+" m, start the timer";}
+  });
+  if(fin(si.biasDeg)){
+    $("s-bias").textContent=Math.round(si.biasDeg)+"°";
+    $("s-biassub").innerHTML="<b>"+(si.fav==="pin"?"pin":"boat end")+"</b> by "+Math.round(si.adv*1852)+" m";
+  }
+}
+function drawStart(){
+  var c=$("stmap"),ctx=c.getContext("2d"),W=c.width,H=c.height,d=window.devicePixelRatio||1;
+  var cs=getComputedStyle(document.documentElement),col=function(n){return cs.getPropertyValue(n).trim();};
+  ctx.fillStyle=col("--face");ctx.fillRect(0,0,W,H);
+  var si=startInfo(),cr=c.getBoundingClientRect(),fr=$("stFree").getBoundingClientRect();
+  var FX=(fr.left-cr.left)*d,FY=(fr.top-cr.top)*d,FW=fr.width*d,FH=fr.height*d;
+  if(!(FW>40&&FH>40)){FX=0;FY=0;FW=W;FH=H;}
+  if(!si){ctx.fillStyle=col("--muted");ctx.font=(14*d)+"px Barlow, sans-serif";ctx.textAlign="center";ctx.fillText("Ping the pin and the boat end",FX+FW/2,FY+FH/2-8*d);ctx.fillText("to draw the line.",FX+FW/2,FY+FH/2+10*d);return;}
+  var pts=[[0,0],si.P,si.B],x0=Math.min(0,si.P[0],si.B[0]),x1=Math.max(0,si.P[0],si.B[0]),y0=Math.min(0,si.P[1],si.B[1]),y1=Math.max(0,si.P[1],si.B[1]);
+  var s=Math.min(FW*0.8/Math.max(x1-x0,0.02),FH*0.62/Math.max(y1-y0,0.02)),cx=(x0+x1)/2,cy=(y0+y1)/2;
+  function sc(p){return [FX+FW/2+(p[0]-cx)*s,FY+FH/2-(p[1]-cy)*s];}
+  var P=sc(si.P),B=sc(si.B),vx=B[0]-P[0],vy=B[1]-P[1],vl=Math.hypot(vx,vy),ex=vx/vl*4000*d,ey=vy/vl*4000*d;
+  // course side shaded
+  var nx=si.n[0]*s,ny=-si.n[1]*s,nl=Math.hypot(nx,ny);nx=nx/nl*4000*d;ny=ny/nl*4000*d;
+  ctx.fillStyle=col("--port");ctx.globalAlpha=0.09;ctx.beginPath();
+  ctx.moveTo(P[0]-ex,P[1]-ey);ctx.lineTo(B[0]+ex,B[1]+ey);ctx.lineTo(B[0]+ex+nx,B[1]+ey+ny);ctx.lineTo(P[0]-ex+nx,P[1]-ey+ny);ctx.closePath();ctx.fill();ctx.globalAlpha=1;
+  // start laylines from both ends
+  if(si.lay){
+    var LL=Math.max(si.len*3,0.6);
+    [[si.P,si.lay.pinS,"--stbd"],[si.P,si.lay.pinP,"--port"],[si.B,si.lay.boatS,"--stbd"],[si.B,si.lay.boatP,"--port"]].forEach(function(q){
+      var a0=sc(q[0]),a1=sc([q[0][0]+Math.sin(q[1]*D2R)*LL,q[0][1]+Math.cos(q[1]*D2R)*LL]);
+      ctx.strokeStyle=col(q[2]);ctx.globalAlpha=0.6;ctx.lineWidth=1.5*d;ctx.setLineDash([9*d,6*d]);
+      ctx.beginPath();ctx.moveTo(a0[0],a0[1]);ctx.lineTo(a1[0],a1[1]);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;
+    });
+  }
+  // line and extensions
+  ctx.strokeStyle=col("--muted");ctx.lineWidth=1*d;ctx.setLineDash([6*d,6*d]);ctx.beginPath();ctx.moveTo(P[0]-ex,P[1]-ey);ctx.lineTo(B[0]+ex,B[1]+ey);ctx.stroke();ctx.setLineDash([]);
+  ctx.strokeStyle=col("--ink");ctx.lineWidth=3*d;ctx.beginPath();ctx.moveTo(P[0],P[1]);ctx.lineTo(B[0],B[1]);ctx.stroke();
+  // ends
+  ctx.font="700 "+(13*d)+"px 'Barlow Condensed', sans-serif";ctx.textAlign="center";
+  [[P,"PIN",si.fav==="pin"],[B,"BOAT",si.fav==="boat"]].forEach(function(e){
+    ctx.fillStyle=col("--target");ctx.beginPath();ctx.arc(e[0][0],e[0][1],7*d,0,2*Math.PI);ctx.fill();
+    if(e[2]){ctx.strokeStyle=col("--stbd");ctx.lineWidth=3*d;ctx.beginPath();ctx.arc(e[0][0],e[0][1],13*d,0,2*Math.PI);ctx.stroke();}
+    ctx.fillStyle=e[2]?col("--stbd"):col("--ink");ctx.fillText(e[1],e[0][0],e[0][1]+28*d);
+  });
+  // boat and its course to the line
+  var b=sc([0,0]);
+  if(si.d<0&&si.vn>0.2){var k2=(-si.d)/si.vn,hit=sc([si.u[0]*k2,si.u[1]*k2]);
+    ctx.strokeStyle=col("--ink");ctx.lineWidth=1.3*d;ctx.setLineDash([4*d,5*d]);ctx.beginPath();ctx.moveTo(b[0],b[1]);ctx.lineTo(hit[0],hit[1]);ctx.stroke();ctx.setLineDash([]);}
+  // straight lines to each end with the average speed needed to be there at the gun
+  var rr=cdRem(Date.now());
+  [[si.P,si.toPin],[si.B,si.toBoat]].forEach(function(q){
+    if(!q[1])return;var e=sc(q[0]);
+    ctx.strokeStyle=col("--muted");ctx.lineWidth=1*d;ctx.setLineDash([1.5*d,4*d]);ctx.beginPath();ctx.moveTo(b[0],b[1]);ctx.lineTo(e[0],e[1]);ctx.stroke();ctx.setLineDash([]);
+    if(fin(rr)&&rr>1){var need=q[1].dist/(rr/3600),mx=(b[0]+e[0])/2,my=(b[1]+e[1])/2;
+      label(need.toFixed(1)+" kn",mx,my,need<=q[1].max?col("--stbd"):col("--port"),13);}
+  });
+  // luff up / tack up paths to the line, with time written at the line
+  [si.luff,si.tackUp].forEach(function(x,i){
+    if(!x||!x.arc)return;var cc=x.tack==="port"?col("--port"):col("--stbd");
+    // the turn itself, drawn solid and thick
+    ctx.strokeStyle=cc;ctx.lineWidth=3.5*d;ctx.lineJoin="round";ctx.beginPath();
+    x.arc.forEach(function(q,j){var z=sc(q);if(j)ctx.lineTo(z[0],z[1]);else ctx.moveTo(z[0],z[1]);});ctx.stroke();
+    if(!x.ok)return;
+    var e=sc(x.arc[x.arc.length-1]),h=sc(x.pt);
+    ctx.lineWidth=2.2*d;ctx.setLineDash(i===0?[8*d,5*d]:[2*d,5*d]);
+    ctx.beginPath();ctx.moveTo(e[0],e[1]);ctx.lineTo(h[0],h[1]);ctx.stroke();ctx.setLineDash([]);
+    ctx.beginPath();ctx.arc(h[0],h[1],5*d,0,2*Math.PI);ctx.fillStyle=cc;ctx.fill();
+    label((i===0?"luff ":"tack ")+fmtSigned(x.time),h[0],h[1]-26*d,cc,14);
+    label("loss "+fmtSigned(x.loss),h[0],h[1]-11*d,cc,11);
+  });
+  // projected position at the gun on each tack: hollow = current speed, filled = 100% polar
+  (si.proj||[]).forEach(function(p){
+    var cc=p.tack==="port"?col("--port"):col("--stbd"),a0=sc(p.cur.pt),a1=sc(p.pol.pt);
+    ctx.strokeStyle=cc;ctx.lineWidth=1.5*d;ctx.globalAlpha=0.8;ctx.beginPath();ctx.moveTo(a0[0],a0[1]);ctx.lineTo(a1[0],a1[1]);ctx.stroke();ctx.globalAlpha=1;
+    ctx.lineWidth=2.5*d;ctx.beginPath();ctx.arc(a0[0],a0[1],7*d,0,2*Math.PI);ctx.fillStyle=col("--face");ctx.fill();ctx.stroke();
+    ctx.beginPath();ctx.arc(a1[0],a1[1],7*d,0,2*Math.PI);ctx.fillStyle=cc;ctx.fill();
+    [[p.pol,a1,"100% "],[p.cur,a0,"now "]].forEach(function(q){
+      var over=q[0].dl>0,t=q[2]+(over?"+":"−")+Math.abs(Math.round(q[0].dl))+" m";
+      label(t,q[1][0]+(q[1][0]<FX+FW/2?-12:12)*d,q[1][1]+4*d,over?col("--port"):col("--stbd"),12,q[1][0]<FX+FW/2?"right":"left");
+    });
+  });
+  function label(t,x,y,c,sz,al){ctx.font="700 "+(sz*d)+"px "+cs.getPropertyValue("--digits");ctx.textAlign=al||"center";
+    ctx.lineWidth=4*d;ctx.strokeStyle=col("--face");ctx.strokeText(t,x,y);ctx.fillStyle=c;ctx.fillText(t,x,y);}
+  ctx.save();ctx.translate(b[0],b[1]);ctx.rotate((S.hdg||0)*D2R);
+  ctx.fillStyle=si.d>0?col("--port"):col("--ink");ctx.beginPath();ctx.moveTo(0,-15*d);ctx.lineTo(7*d,10*d);ctx.lineTo(0,6*d);ctx.lineTo(-7*d,10*d);ctx.closePath();ctx.fill();ctx.restore();
+  // wind arrow
+  var wx=FX+FW/2,wy=FY+30*d;ctx.strokeStyle=col("--line");ctx.lineWidth=1*d;ctx.beginPath();ctx.arc(wx,wy,24*d,0,2*Math.PI);ctx.stroke();
+  if(fin(S.twd)){ctx.save();ctx.translate(wx,wy);ctx.rotate((S.twd+180)*D2R);ctx.strokeStyle=col("--accent");ctx.fillStyle=col("--accent");ctx.lineWidth=3*d;
+    ctx.beginPath();ctx.moveTo(0,20*d);ctx.lineTo(0,-12*d);ctx.stroke();ctx.beginPath();ctx.moveTo(0,-20*d);ctx.lineTo(7*d,-9*d);ctx.lineTo(-7*d,-9*d);ctx.closePath();ctx.fill();ctx.restore();}
+  ctx.fillStyle=col("--muted");ctx.font="600 "+(12*d)+"px 'Barlow Condensed', sans-serif";ctx.textAlign="center";
+  ctx.fillText("line "+Math.round(si.len*1852)+" m"+(lineDemo?"  (demo)":""),FX+FW/2,FY+FH-8*d);
+}
+// at the gun: full-screen CLEAR START / OCS for 5 s, then the map with a small reminder for a minute
+var lastR=NaN,gunEvt=null;
+function checkGun(now){
+  var r=cdRem(now);
+  if(cd.run&&fin(lastR)&&lastR>0&&r<=0){
+    var si=startInfo();
+    if(si){
+      var m=Math.round(Math.abs(si.d)*1852),ocs=si.d>0;
+      gunEvt={ocs:ocs,t0:now,shown:false};
+      $("gunTxt").textContent=ocs?"OCS":"CLEAR START";
+      $("gunSub").textContent=ocs?m+" m over the line at the gun":m+" m behind the line at the gun";
+      $("gunMsg").className="gunmsg "+(ocs?"bad":"good");$("gunMsg").hidden=false;
+      $("gunBadge").textContent=ocs?"OCS":"CLEAR START";$("gunBadge").className="gunbadge "+(ocs?"bad":"good");
+    }
+  }
+  lastR=r;
+  if(gunEvt){
+    var el=now-gunEvt.t0;
+    if(el>=5000&&!$("gunMsg").hidden){$("gunMsg").hidden=true;setView("map");}
+    $("gunBadge").hidden=!(el<65000&&$("gunMsg").hidden);
+    if(el>=65000)gunEvt=null;
+  }
+}
+$("gunMsg").onclick=function(){if(gunEvt){gunEvt.t0=Math.min(gunEvt.t0,Date.now()-5000);}checkGun(Date.now());};
+$("pPin").onclick=function(){ping("pin");};
+$("demoBtn").onclick=function(){if(source==="sim"){demoLine();$("cdStop").textContent="Stop";}};
+$("pBoat").onclick=function(){ping("boat");};
+[].forEach.call(document.querySelectorAll("[data-cd]"),function(b){b.onclick=function(){setCD(Number(b.getAttribute("data-cd")));sMsg("");};});
+$("cdSync").onclick=function(){var r=cdRem(Date.now());if(!cd.run||!fin(r)){sMsg("Start the timer first.");return;}var r2=Math.max(0,Math.round(r/60)*60);cd.end=Date.now()+r2*1000;};
+$("cdStop").onclick=function(){if(cd.run){cd.rem=cdRem(Date.now());cd.run=false;$("cdStop").textContent="Go";}else if(fin(cd.rem)){setCD(cd.rem);$("cdStop").textContent="Stop";}};
+[["mRate","rate",1,30],["mTack","tack",0,60],["mLuff","luff",0,60]].forEach(function(q){
+  $(q[0]).onchange=function(e){var n=Number(e.target.value);if(fin(n)&&n>=q[2]&&n<=q[3]){manv[q[1]]=n;save("manv",manv);}else e.target.value=manv[q[1]];};
+});
+$("bowIn").onchange=function(e){var n=Number(e.target.value);if(fin(n)&&n>=0&&n<60){bowOff=n;save("bow",n);}else e.target.value=bowOff;};
+setView(view);
+
+
+/* ---------- UI ---------- */
+var THEMES=["normal","night"], theme=load("theme","normal"); if(THEMES.indexOf(theme)<0)theme="normal";
+function applyTheme(){
+  document.documentElement.setAttribute("data-theme",theme==="night"?"night":"dark");
+  $("themeBtn").textContent=theme==="night"?"Normal":"Night";
+}
+$("themeBtn").onclick=function(){theme=THEMES[(THEMES.indexOf(theme)+1)%THEMES.length];save("theme",theme);applyTheme();};
+applyTheme();
+
+$("refBtn").onclick=function(){
+  if(refTwd!=null){refTwd=null;$("refBtn").textContent="Ref TWD";return;}
+  var r=hist.slice(-60).map(function(h){return h.twd;});
+  if(!r.length&&fin(S.twd))r=[S.twd];
+  if(r.length){refTwd=circMean(r);$("refBtn").textContent="Clear ref";}
+};
+
+var dlg=$("dlg");
+$("setBtn").onclick=function(){
+  $("skUrl").value=load("skurl","");
+  var nm=load("nmea",{});$("nmProto").value=nm.proto||"tcp";$("nmHost").value=nm.host||"";$("nmPort").value=nm.port||"";
+  $("nmBridge").value=nm.bridge||(/^https?:/.test(location.protocol)&&!/claude/.test(location.host)?location.origin:"http://localhost:8765");$("damp").value=damp;$("btwIn").value=manualBtw!=null?manualBtw:"";$("mRate").value=manv.rate;$("mTack").value=manv.tack;$("mLuff").value=manv.luff;$("bowIn").value=bowOff;
+  if(!P.demo)$("polarIn").value=polarToText(P);
+  $("boatIn").value=boatName;
+  dlg.showModal();
+};
+$("closeDlg").onclick=function(){dlg.close();};
+var boatName=load("boat","");
+function applyBoat(){var m=$("boatMark");m.textContent=boatName;m.hidden=!boatName;document.title=boatName?boatName+" · MaxRace":"MaxRace";}
+$("boatIn").oninput=function(e){boatName=e.target.value.trim().toUpperCase();save("boat",boatName);applyBoat();};
+applyBoat();
+$("btwIn").onchange=function(e){
+  var v=e.target.value.trim();
+  if(v===""){manualBtw=null;forget("btw");delete raw.btw;delete S.btw;return;}
+  var n=Number(v);
+  if(fin(n)&&n>=0&&n<=360){manualBtw=n%360;save("btw",manualBtw);}else{e.target.value=manualBtw!=null?manualBtw:"";}
+};
+var digits=load("digits","oxanium");
+function applyDigits(){
+  document.documentElement.setAttribute("data-digits",digits);
+  [].forEach.call(document.querySelectorAll("#digitSeg button"),function(b){b.setAttribute("aria-pressed",b.getAttribute("data-d")===digits);});
+}
+[].forEach.call(document.querySelectorAll("#digitSeg button"),function(b){b.onclick=function(){digits=b.getAttribute("data-d");save("digits",digits);applyDigits();};});
+applyDigits();
+$("damp").oninput=function(e){damp=Number(e.target.value);save("damp",damp);};
+
+function setSource(s){
+  source=s;$("srcSim").setAttribute("aria-pressed",s==="sim");$("srcSK").setAttribute("aria-pressed",s==="sk");$("srcNM").setAttribute("aria-pressed",s==="nmea");
+  ais={};if(s!=="nmea")disconnectNM();
+  if(s==="sim"){disconnectSK();raw={};S={};seedSim();setPill("sim","Simulator");skMsg("");}
+  else {raw={};S={};hist=[];setPill("err","Not connected");skMsg("Enter the address and choose Connect.");}
+  $("demoBtn").hidden=s!=="sim";
+}
+$("srcSim").onclick=function(){setSource("sim");save("src","sim");};
+$("srcSK").onclick=function(){setSource("sk");};
+$("srcNM").onclick=function(){setSource("nmea");nmMsg("Enter IP and port of the NMEA source and choose Connect.");};
+$("nmConnect").onclick=function(){setSource("nmea");connectNM();};
+$("skConnect").onclick=function(){setSource("sk");connectSK($("skUrl").value.trim());};
+
+function polarToText(p){
+  return ["TWA\\TWS"].concat(p.tws).join("\t")+"\n"+p.twa.map(function(a,i){return [a].concat(p.bsp[i]).join("\t");}).join("\n");
+}
+function polarMsg(t,c){var m=$("polarMsg");m.textContent=t;m.className="msg "+(c||"");}
+$("polarLoad").onclick=function(){
+  try{var p=parsePolar($("polarIn").value,"Custom polar");setPolar(p);save("polar",p);
+    polarMsg("Loaded "+p.twa.length+" TWA rows by "+p.tws.length+" TWS columns ("+p.tws[0]+" to "+p.tws[p.tws.length-1]+" kn).","ok");}
+  catch(e){polarMsg(e.message,"err");}
+};
+$("polarFile").onchange=function(e){
+  var f=e.target.files[0];if(!f)return;
+  var r=new FileReader();
+  r.onload=function(){$("polarIn").value=r.result;
+    try{var p=parsePolar(r.result,f.name.replace(/\.[^.]+$/,""));setPolar(p);save("polar",p);polarMsg("Loaded "+f.name+".","ok");}
+    catch(err){polarMsg(err.message,"err");}};
+  r.readAsText(f);
+};
+$("polarReset").onclick=function(){setPolar(makeDemo());forget("polar");$("polarIn").value="";polarMsg("Using the demo polar.","ok");};
+setPolar(P);
+// inside the app: no bridge field, show the address for tablets, and reconnect to the last source on start
+if(LOCAL){
+  $("nmBridgeRow").hidden=true;
+  $("nmHelp").textContent="NMEA 0183 from your gateway or instrument system: enter its IP address and port. For UDP broadcast the IP is optional.";
+  fetch("/info").then(function(r){return r.json();}).then(function(j){
+    if(!j.addresses||!j.addresses.length)return;
+    $("nmShare").textContent="Tablets and phones on the same network can open: "+j.addresses.map(function(a){return "http://"+a+":"+j.port;}).join("  ·  ");
+    $("nmShare").hidden=false;
+  }).catch(function(){});
+  var src0=load("src",null),nm0=load("nmea",{});
+  // first start: a single screen asking only for IP and port
+  if(!src0){
+    $("welcome").showModal();
+    $("wProto").onchange=function(){$("wHost").placeholder=$("wProto").value==="udp"?"optional":"192.168.1.50";};
+    $("wSim").onclick=function(){save("src","sim");$("welcome").close();};
+    $("wGo").onclick=function(){
+      var pr=$("wProto").value,h=$("wHost").value.trim(),pt=$("wPort").value.trim(),m=$("wMsg");
+      if(pr==="tcp"&&!h){m.className="msg err";m.textContent="Enter the IP address.";return;}
+      if(!(+pt>0&&+pt<65536)){m.className="msg err";m.textContent="Enter the port, for example 10110.";return;}
+      $("nmProto").value=pr;$("nmHost").value=h;$("nmPort").value=pt;setSource("nmea");connectNM();
+      m.className="msg";m.textContent="Connecting…";var t0=Date.now();
+      var iv=setInterval(function(){
+        if(/^Live/.test($("srcText").textContent)){clearInterval(iv);$("welcome").close();return;}
+        var err=$("nmMsg").className.indexOf("err")>=0;
+        if(err||Date.now()-t0>12000){clearInterval(iv);m.className="msg err";m.textContent=(err?$("nmMsg").textContent:"No data yet from "+(h||"*")+":"+pt+".")+" Check IP and port, and that this computer is on the boat network.";}
+      },400);
+    };
+  }
+  if(src0==="nmea"&&nm0.port){$("nmProto").value=nm0.proto||"tcp";$("nmHost").value=nm0.host||"";$("nmPort").value=nm0.port;setSource("nmea");connectNM();}
+}
+if(load("src","sim")==="sk"&&load("skurl","")){setSource("sk");connectSK(load("skurl",""));}
+})();
+</script>
+</body>
+</html>

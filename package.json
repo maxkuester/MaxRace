@@ -1,0 +1,38 @@
+{
+  "name": "maxrace",
+  "productName": "MaxRace",
+  "version": "1.0.0",
+  "description": "MaxRace sailing race dashboard",
+  "main": "main.js",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "fonts": "node scripts/fetch-fonts.js",
+    "dist": "node scripts/fetch-fonts.js && electron-builder --publish never",
+    "server": "node server.js"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.maxrace.dash",
+    "productName": "MaxRace",
+    "files": ["main.js", "server.js", "maxrace.html", "fonts/**", "build/icon.png"],
+    "directories": { "buildResources": "build", "output": "dist" },
+    "artifactName": "MaxRace-${version}-${os}-${arch}.${ext}",
+    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.ico" },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "MaxRace",
+      "artifactName": "MaxRace-Setup.${ext}"
+    },
+    "mac": { "target": [{ "target": "dmg", "arch": ["universal"] }], "category": "public.app-category.sports", "icon": "build/icon.png" },
+    "linux": { "target": ["AppImage"], "category": "Utility", "icon": "build/icon.png" }
+  }
+}

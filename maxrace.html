@@ -337,6 +337,12 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .boatsel option{background:#0A0D11;color:#F3F6F9;font-family:var(--ui);font-weight:500;letter-spacing:0}
 .mklist li.on{border-color:var(--stbd)}
 @media (max-width:640px){.boatsel{font-size:.9rem;max-width:30vw;padding:2px 3px}}
+
+/* ---- AIS fleet dialog ---- */
+.aisrow{display:flex;align-items:center;gap:8px;flex:1;min-width:0;cursor:pointer}
+.aisrow input{width:20px;height:20px;accent-color:var(--accent)}
+.aislist li.on{border-color:var(--accent)}
+#aisBtn{font-size:.8rem}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 </head>
@@ -449,6 +455,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
         <button class="btn" id="zIn" aria-label="Zoom in">+</button>
         <button class="btn" id="zOut" aria-label="Zoom out">−</button>
         <button class="btn" id="zFit" aria-pressed="true">Fit</button>
+        <button class="btn" id="aisBtn" aria-label="AIS fleet">AIS</button>
       </div>
     </div>
     <div class="mapnums">
@@ -505,6 +512,25 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 </dialog>
 
 <div class="gunmsg" id="gunMsg" hidden role="alert"><div class="gtxt" id="gunTxt"></div><div class="gsub" id="gunSub"></div></div>
+
+<dialog id="aisDlg">
+  <div class="dlg">
+    <div class="row" style="justify-content:space-between"><h2>AIS fleet</h2><button class="btn" id="aisClose">Close</button></div>
+    <div>
+      <h3>Show on the map</h3>
+      <div class="seg" role="group" aria-label="AIS display" id="aisSeg">
+        <button data-m="all">All boats</button><button data-m="sel">Selected only</button><button data-m="off">Off</button>
+      </div>
+      <div class="row" style="margin-top:10px"><label><input type="checkbox" id="aisCpa"> Always show boats on a close-quarters course (CPA warning), even when hidden</label></div>
+    </div>
+    <div>
+      <div class="row" style="justify-content:space-between"><h3 style="margin:0">Boats received</h3>
+        <span class="row"><button class="btn" id="aisAll">Select all</button><button class="btn" id="aisNone">Select none</button></span></div>
+      <p style="margin-top:6px">Tick the boats to follow. The selection is used with "Selected only" and is kept for next time.</p>
+      <ul class="mklist aislist" id="aisList"></ul>
+    </div>
+  </div>
+</dialog>
 
 <dialog id="crsDlg">
   <div class="dlg">
@@ -1354,16 +1380,20 @@ function drawMap(){
   var me=fin(S.cog)&&fin(S.sog)?[Math.sin(S.cog*D2R)*S.sog,Math.cos(S.cog*D2R)*S.sog]:[0,0];
   Object.keys(ais).forEach(function(key){
     var a=ais[key];if(!fin(a.lat)||nowA-a.t>180000)return;
+    var shown=aisShown(key,a);
     var R0=nm(a.lat,a.lon),p=sc(R0),hd=fin(a.hdg)?a.hdg:a.cog;
     var vt=fin(a.cog)&&fin(a.sog)?[Math.sin(a.cog*D2R)*a.sog,Math.cos(a.cog*D2R)*a.sog]:[0,0];
     // closest point of approach
     var V=[vt[0]-me[0],vt[1]-me[1]],vv=V[0]*V[0]+V[1]*V[1],tc=vv>1e-6?-(R0[0]*V[0]+R0[1]*V[1])/vv:0;
     var cpa=tc>0?Math.hypot(R0[0]+V[0]*tc,R0[1]+V[1]*tc):Math.hypot(R0[0],R0[1]),warn=tc>0&&tc<0.1&&cpa<0.05;
+    if(!shown&&!(warn&&aisCfg.cpa))return;
+    var picked=aisCfg.sel.indexOf(aisId(key,a))>=0&&aisCfg.mode!=="sel";
     if(fin(a.cog)&&fin(a.sog)){var q=sc([R0[0]+vt[0]/60,R0[1]+vt[1]/60]);
       ctx.strokeStyle=col("--accent");ctx.lineWidth=1.2*d;ctx.beginPath();ctx.moveTo(p[0],p[1]);ctx.lineTo(q[0],q[1]);ctx.stroke();}
     ctx.save();ctx.translate(p[0],p[1]);ctx.rotate((hd||0)*D2R);
     ctx.strokeStyle=warn?col("--port"):col("--accent");ctx.lineWidth=2*d;ctx.beginPath();
-    ctx.moveTo(0,-12*d);ctx.lineTo(6*d,8*d);ctx.lineTo(-6*d,8*d);ctx.closePath();ctx.stroke();ctx.restore();
+    ctx.moveTo(0,-12*d);ctx.lineTo(6*d,8*d);ctx.lineTo(-6*d,8*d);ctx.closePath();ctx.stroke();
+    if(picked){ctx.fillStyle=col("--accent");ctx.fill();}ctx.restore();
     var nmName=(a.name||a.mmsi||"AIS").toString().slice(0,14);
     tag(nmName,p[0]+10*d,p[1]-9*d,col("--accent"),11,"left");
     if(wv){var up=(R0[0]*wv[0]+R0[1]*wv[1])*1852*(goingUp?1:-1);
@@ -1659,6 +1689,43 @@ $("crsBtn").onclick=function(){renderCourse();fillBdFrom();crsMsg("");bdMsg("");
 $("crsClose").onclick=function(){$("crsDlg").close();};
 $("openCrs").onclick=function(){$("dlg").close();renderCourse();fillBdFrom();crsMsg("");bdMsg("");$("crsDlg").showModal();};
 renderCourse();
+
+
+/* ---------- AIS fleet: all, selected only, or off ---------- */
+var aisCfg=load("ais",{mode:"all",sel:[],cpa:true,names:{}});
+function aisId(key,a){return String(a.mmsi||key);}
+function aisShown(key,a){return aisCfg.mode==="all"||(aisCfg.mode==="sel"&&aisCfg.sel.indexOf(aisId(key,a))>=0);}
+function saveAis(){save("ais",aisCfg);aisButton();}
+function aisButton(){var b=$("aisBtn");b.setAttribute("aria-pressed",aisCfg.mode!=="off");b.textContent=aisCfg.mode==="off"?"AIS off":aisCfg.mode==="sel"?"AIS "+aisCfg.sel.length:"AIS";}
+function renderAis(){
+  [].forEach.call(document.querySelectorAll("#aisSeg button"),function(b){b.setAttribute("aria-pressed",b.getAttribute("data-m")===aisCfg.mode);});
+  $("aisCpa").checked=!!aisCfg.cpa;aisCfg.names=aisCfg.names||{};
+  var now=Date.now(),rows=Object.keys(ais).map(function(k){var a=ais[k];
+    var dd=fin(a.lat)&&fin(S.lat)?bearDist(S.lat,S.lon,a.lat,a.lon).d:NaN;return {id:aisId(k,a),name:a.name||"",mmsi:a.mmsi||"",d:dd,age:fin(a.t)?(now-a.t)/1000:NaN};});
+  // boats selected earlier but not received now stay listed, so the selection is not lost
+  aisCfg.sel.forEach(function(id){if(!rows.some(function(r){return r.id===id;}))rows.push({id:id,name:aisCfg.names[id]||"",mmsi:id,d:NaN,age:NaN,gone:true});});
+  // stable order by name, so the list does not jump while ticking boats
+  rows.sort(function(x,y){return (x.name||"~"+x.mmsi).localeCompare(y.name||"~"+y.mmsi);});
+  $("aisList").innerHTML=rows.length?rows.map(function(r){
+    var on=aisCfg.sel.indexOf(r.id)>=0;
+    return '<li'+(on?' class="on"':'')+'><label class="aisrow"><input type="checkbox" data-id="'+esc(r.id)+'"'+(on?' checked':'')+'><b>'+esc(r.name||("MMSI "+r.mmsi))+'</b></label>'+
+      '<span>'+(r.name?"MMSI "+esc(r.mmsi)+" · ":"")+(r.gone?"not received now":(fin(r.d)?r.d.toFixed(2)+" nm":"--")+(fin(r.age)?" · seen "+Math.round(r.age)+" s ago":""))+'</span></li>';
+  }).join(""):'<li class="empty">No AIS targets received yet.</li>';
+}
+var aisTimer=null;
+$("aisBtn").onclick=function(){renderAis();$("aisDlg").showModal();clearInterval(aisTimer);aisTimer=setInterval(function(){if($("aisDlg").open&&!$("aisList").matches(":hover"))renderAis();},2000);};
+$("aisClose").onclick=function(){$("aisDlg").close();clearInterval(aisTimer);};
+[].forEach.call(document.querySelectorAll("#aisSeg button"),function(b){b.onclick=function(){aisCfg.mode=b.getAttribute("data-m");saveAis();renderAis();if(view==="map")drawMap();};});
+$("aisCpa").onchange=function(e){aisCfg.cpa=e.target.checked;saveAis();};
+$("aisList").onchange=function(e){
+  var c=e.target;if(!c.matches("input[type=checkbox]"))return;var id=c.getAttribute("data-id"),i=aisCfg.sel.indexOf(id);
+  if(c.checked&&i<0){aisCfg.sel.push(id);Object.keys(ais).forEach(function(k){if(aisId(k,ais[k])===id&&ais[k].name)aisCfg.names[id]=ais[k].name;});}
+  if(!c.checked&&i>=0)aisCfg.sel.splice(i,1);
+  saveAis();renderAis();if(view==="map")drawMap();
+};
+$("aisAll").onclick=function(){Object.keys(ais).forEach(function(k){var id=aisId(k,ais[k]);if(aisCfg.sel.indexOf(id)<0)aisCfg.sel.push(id);if(ais[k].name)aisCfg.names[id]=ais[k].name;});saveAis();renderAis();};
+$("aisNone").onclick=function(){aisCfg.sel=[];saveAis();renderAis();};
+aisButton();
 
 /* ---------- start line ---------- */
 var manv=load("manv",{rate:8,tack:6,luff:2}), line=load("line",null), lineDemo=false, cd={run:false,end:0,rem:NaN}, bowOff=load("bow",0);

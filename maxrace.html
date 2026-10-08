@@ -204,10 +204,28 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .mapnums{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:repeat(4,minmax(0,1fr));gap:3px;min-height:0}
 .mapnums .val{font-size:min(74cqh,40cqw)}
 .mapnums .bsp .val{font-size:min(80cqh,44cqw)}
+/* combined dash + map: map on the left, 14 numbers in two columns on the right */
+.mapnums .cx{display:none}
+.vsw .sm{display:none}
+.mapview.combo{grid-template-columns:minmax(0,1fr) minmax(0,.62fr)}
+.mapview.combo .mapnums{grid-template-rows:repeat(7,minmax(0,1fr))}
+.mapview.combo .mapnums .cx{display:block}
+.mapview.combo .mapnums .val{font-size:min(80cqh,40cqw)}
+.mapview.combo .mapnums .bsp .val,.mapview.combo #tm-vmg .val{font-size:min(84cqh,44cqw)}
+.mapview.combo .o-bsp{order:1}.mapview.combo .o-vmg{order:2}.mapview.combo .o-tws{order:3}.mapview.combo .o-twd{order:4}
+.mapview.combo .o-twa{order:5}.mapview.combo .o-hdg{order:6}.mapview.combo .o-vmc{order:7}.mapview.combo .o-btw{order:8}
+.mapview.combo .o-cog{order:9}.mapview.combo .o-sog{order:10}.mapview.combo .o-dtw{order:11}.mapview.combo .o-heel{order:12}
+.mapview.combo .o-port{order:13}.mapview.combo .o-stbd{order:14}
+@media (orientation:portrait), (max-width:640px){
+  .mapview.combo{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}
+  .mapview.combo .mapnums{grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(4,clamp(54px,9vh,96px))}
+}
 @media (orientation:portrait), (max-width:640px){
   .mapview{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}
   .mapnums{grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(2,clamp(60px,11vh,104px))}
-  .vsw button{padding:3px 7px}
+  .vsw button{padding:3px 6px}
+  .vsw .lg{display:none}.vsw .sm{display:inline}
+  .bar{gap:4px;row-gap:4px;flex-wrap:wrap}.bar .btn{padding:4px 6px;font-size:.8rem}
   #srcText{display:none}
   .mark{display:none}
 }
@@ -358,7 +376,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
     <select id="boatSel" class="boatsel" aria-label="Boat"></select>
     <span class="pill sim" id="srcPill"><i></i><span id="srcText">Simulator</span></span>
     <span class="pill hide-sm" id="polarPill" title="Polar in use"><span id="polarText">Demo polar</span></span>
-    <div class="seg vsw" role="group" aria-label="View"><button id="vInst" aria-pressed="true">Dash</button><button id="vMap" aria-pressed="false">Map</button><button id="vStart" aria-pressed="false">Start</button></div>
+    <div class="seg vsw" role="group" aria-label="View"><button id="vInst" aria-pressed="true">Dash</button><button id="vMap" aria-pressed="false">Map</button><button id="vBoth" aria-pressed="false" title="Dash numbers and map together"><span class="lg">Dash+Map</span><span class="sm">D+M</span></button><button id="vStart" aria-pressed="false">Start</button></div>
     <div class="spacer"></div>
     <button class="btn" id="refBtn" title="Lock the current mean TWD as reference for the shift trace">Ref TWD</button>
     <button class="btn" id="themeBtn">Night</button>
@@ -464,14 +482,20 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
       </div>
     </div>
     <div class="mapnums">
-      <div class="tile"><div class="blk bsp" id="tm-bsp"><div class="lbl">BSP <small>kn</small></div><div class="val" id="m-bsp">--</div></div></div>
-      <div class="tile"><div class="blk"><div class="lbl">TWA</div><div class="val" id="m-twa">--</div></div></div>
-      <div class="tile"><div class="blk"><div class="lbl">TWS <small>kn</small></div><div class="val" id="m-tws">--</div></div></div>
-      <div class="tile"><div class="blk"><div class="lbl">VMC <small>kn</small></div><div class="val" id="m-vmc">--</div></div></div>
-      <div class="tile"><div class="blk"><div class="lbl">DTW <small>nm</small></div><div class="val" id="m-dtw">--</div><div class="sub">TTG <b id="m-ttg">--</b></div></div></div>
-      <div class="tile"><div class="blk"><div class="lbl">BTW</div><div class="val" id="m-btw">--</div></div></div>
-      <div class="tile"><div class="blk"><div class="lbl" style="color:var(--port)">PORT LAY</div><div class="val p" id="m-port">--</div><div class="sub" id="m-portd">--</div></div></div>
-      <div class="tile"><div class="blk"><div class="lbl" style="color:var(--stbd)">STBD LAY</div><div class="val s" id="m-stbd">--</div><div class="sub" id="m-stbdd">--</div></div></div>
+      <div class="tile o-bsp"><div class="blk bsp" id="tm-bsp"><div class="lbl">BSP <small>kn</small></div><div class="val" id="m-bsp">--</div></div></div>
+      <div class="tile o-twa"><div class="blk"><div class="lbl">TWA</div><div class="val" id="m-twa">--</div></div></div>
+      <div class="tile o-tws"><div class="blk"><div class="lbl">TWS <small>kn</small></div><div class="val" id="m-tws">--</div></div></div>
+      <div class="tile o-vmc"><div class="blk"><div class="lbl">VMC <small>kn</small></div><div class="val" id="m-vmc">--</div></div></div>
+      <div class="tile o-dtw"><div class="blk"><div class="lbl">DTW <small>nm</small></div><div class="val" id="m-dtw">--</div><div class="sub">TTG <b id="m-ttg">--</b></div></div></div>
+      <div class="tile o-btw"><div class="blk"><div class="lbl">BTW</div><div class="val" id="m-btw">--</div></div></div>
+      <div class="tile o-port"><div class="blk"><div class="lbl" style="color:var(--port)">PORT LAY</div><div class="val p" id="m-port">--</div><div class="sub" id="m-portd">--</div></div></div>
+      <div class="tile o-stbd"><div class="blk"><div class="lbl" style="color:var(--stbd)">STBD LAY</div><div class="val s" id="m-stbd">--</div><div class="sub" id="m-stbdd">--</div></div></div>
+      <div class="tile cx o-vmg"><div class="blk" id="tm-vmg"><div class="lbl"><span id="ml-vmg">VMG</span> <small>kn</small></div><div class="val" id="m-vmg">--</div><div class="sub" id="ms-vmg">--</div></div></div>
+      <div class="tile cx o-twd"><div class="blk"><div class="lbl">TWD</div><div class="val" id="m-twd">--</div><div class="sub"><b id="m-shift">--</b></div></div></div>
+      <div class="tile cx o-hdg"><div class="blk"><div class="lbl">HDG</div><div class="val" id="m-hdg">--</div></div></div>
+      <div class="tile cx o-cog"><div class="blk"><div class="lbl">COG</div><div class="val" id="m-cog">--</div></div></div>
+      <div class="tile cx o-sog"><div class="blk"><div class="lbl">SOG <small>kn</small></div><div class="val" id="m-sog">--</div></div></div>
+      <div class="tile cx o-heel"><div class="blk"><div class="lbl">HEEL</div><div class="val" id="m-heel">--</div><div class="sub" id="m-heelside">--</div></div></div>
     </div>
   </section>
   <section class="startview" id="startView" hidden aria-label="Start line">
@@ -1184,7 +1208,7 @@ function loop(){
   var now=Date.now(), p=performance.now(), dt=(p-lastTick)/1000; lastTick=p;
   if(source==="sim")simStep(Math.min(dt,1)); else derive();
   applyCourse(); smooth(); courseTick(now); pushHist(now); render(now);
-  if(view==="map"){renderMapNums();drawMap();}
+  if((view==="map"||view==="both")){renderMapNums();drawMap();}
   if(view==="start"){renderStart(now);drawStart();}
   checkGun(now);
 }
@@ -1233,6 +1257,14 @@ function layText(x){
 }
 function renderMapNums(){
   $("m-bsp").textContent=f1(S.bsp);perf("tm-bsp",perfNow());
+  if(view==="both"){
+    $("m-twd").textContent=deg3(S.twd);$("m-shift").textContent=$("v-shift").textContent;
+    $("m-hdg").textContent=deg3(S.hdg);$("m-cog").textContent=deg3(S.cog);$("m-sog").textContent=f1(S.sog);
+    if(fin(S.heel)){$("m-heel").textContent=Math.abs(S.heel).toFixed(0)+"°";$("m-heelside").textContent=Math.abs(S.heel)<0.5?"Upright":(S.heel>0?"Stbd down":"Port down");}
+    // VMG mirrors the dash tile: live value, % of target, target flashing in its place
+    var tv=$("t-vmg");$("tm-vmg").className=tv.className;$("m-vmg").style.color=$("v-vmg").style.color;$("tm-vmg").closest(".tile").style.background=tv.closest(".tile").style.background;
+    $("ml-vmg").textContent=$("l-vmg").textContent;$("m-vmg").textContent=$("v-vmg").textContent;$("ms-vmg").innerHTML=$("s-vmg").innerHTML;
+  }
   $("m-twa").textContent=sideAng(S.twa);colorSide("m-twa",S.twa);
   $("m-tws").textContent=f1(S.tws);
   $("m-vmc").textContent=f1(vmcNow());
@@ -1252,7 +1284,7 @@ function sizeMap(){
   var c=$("map"),r=c.parentNode.getBoundingClientRect(),d=window.devicePixelRatio||1;
   c.width=Math.max(1,Math.round(r.width*d));c.height=Math.max(1,Math.round(r.height*d));
 }
-if(window.ResizeObserver)new ResizeObserver(function(){if(view==="map"){sizeMap();drawMap();}}).observe($("mapBox"));
+if(window.ResizeObserver)new ResizeObserver(function(){if((view==="map"||view==="both")){sizeMap();drawMap();}}).observe($("mapBox"));
 function drawMap(){
   var c=$("map"),ctx=c.getContext("2d"),W=c.width,H=c.height,d=window.devicePixelRatio||1;
   var cs=getComputedStyle(document.documentElement),col=function(n){return cs.getPropertyValue(n).trim();};
@@ -1427,13 +1459,14 @@ function drawMap(){
 }
 function setView(v){
   view=v;save("view",v);
-  $("mapView").hidden=v!=="map";$("startView").hidden=v!=="start";document.querySelector(".main").hidden=v!=="inst";
-  $("vInst").setAttribute("aria-pressed",v==="inst");$("vMap").setAttribute("aria-pressed",v==="map");$("vStart").setAttribute("aria-pressed",v==="start");
-  if(v==="map"){sizeMap();renderMapNums();drawMap();}
+  var mp=v==="map"||v==="both";$("mapView").hidden=!mp;$("mapView").classList.toggle("combo",v==="both");$("startView").hidden=v!=="start";document.querySelector(".main").hidden=v!=="inst";
+  $("vInst").setAttribute("aria-pressed",v==="inst");$("vMap").setAttribute("aria-pressed",v==="map");$("vBoth").setAttribute("aria-pressed",v==="both");$("vStart").setAttribute("aria-pressed",v==="start");
+  if(mp){sizeMap();renderMapNums();drawMap();}
   if(v==="start"){if(source==="sim"&&!(line&&line.pin&&line.boat))demoLine();sizeCanvas($("stmap"));renderStart(Date.now());drawStart();}
 }
 $("vInst").onclick=function(){setView("inst");};
 $("vMap").onclick=function(){setView("map");};
+$("vBoth").onclick=function(){setView("both");};
 $("vStart").onclick=function(){setView("start");};
 $("zIn").onclick=function(){mapFit=false;mapS*=1.5;drawMap();$("zFit").setAttribute("aria-pressed","false");};
 $("zOut").onclick=function(){mapFit=false;mapS/=1.5;drawMap();$("zFit").setAttribute("aria-pressed","false");};
@@ -1730,13 +1763,13 @@ function renderAis(){
 var aisTimer=null;
 $("aisBtn").onclick=function(){renderAis();$("aisDlg").showModal();clearInterval(aisTimer);aisTimer=setInterval(function(){if($("aisDlg").open&&!$("aisList").matches(":hover"))renderAis();},2000);};
 $("aisClose").onclick=function(){$("aisDlg").close();clearInterval(aisTimer);};
-[].forEach.call(document.querySelectorAll("#aisSeg button"),function(b){b.onclick=function(){aisCfg.mode=b.getAttribute("data-m");saveAis();renderAis();if(view==="map")drawMap();};});
+[].forEach.call(document.querySelectorAll("#aisSeg button"),function(b){b.onclick=function(){aisCfg.mode=b.getAttribute("data-m");saveAis();renderAis();if((view==="map"||view==="both"))drawMap();};});
 $("aisCpa").onchange=function(e){aisCfg.cpa=e.target.checked;saveAis();};
 $("aisList").onchange=function(e){
   var c=e.target;if(!c.matches("input[type=checkbox]"))return;var id=c.getAttribute("data-id"),i=aisCfg.sel.indexOf(id);
   if(c.checked&&i<0){aisCfg.sel.push(id);Object.keys(ais).forEach(function(k){if(aisId(k,ais[k])===id&&ais[k].name)aisCfg.names[id]=ais[k].name;});}
   if(!c.checked&&i>=0)aisCfg.sel.splice(i,1);
-  saveAis();renderAis();if(view==="map")drawMap();
+  saveAis();renderAis();if((view==="map"||view==="both"))drawMap();
 };
 $("aisAll").onclick=function(){Object.keys(ais).forEach(function(k){var id=aisId(k,ais[k]);if(aisCfg.sel.indexOf(id)<0)aisCfg.sel.push(id);if(ais[k].name)aisCfg.names[id]=ais[k].name;});saveAis();renderAis();};
 $("aisNone").onclick=function(){aisCfg.sel=[];saveAis();renderAis();};

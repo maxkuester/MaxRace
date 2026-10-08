@@ -2244,33 +2244,42 @@ async function pdfLines(bytes, inflate){
 // Beat and gybe points become boat speeds via VMG / cos(angle).
 function orcPolarFromLines(lines,title){
   function compact(t){return t.replace(/\s+/g,"").toLowerCase();}
-  // tokens of a line, with numbers the PDF split in two put back together ("1 1.28" -> "11.28", "1 10°" -> "110°")
+  // tokens of a line; a TWA row label the PDF split in two is put back together ("1 10°" -> "110°")
   function toks(t){
-    var a=t.split(" "),o=[];
-    for(var i=0;i<a.length;i++){
-      if(/^\d$/.test(a[i])&&i+1<a.length&&/^\d/.test(a[i+1])){o.push(a[i]+a[i+1]);i++;}else o.push(a[i]);
-    }
-    return o;
+    var a=t.split(" ");
+    if(a.length>1&&/^\d$/.test(a[0])&&/^\d+°$/.test(a[1]))a.splice(0,2,a[0]+a[1]);
+    return a;
   }
-  // numbers right after the label, stopping at the first word (the right-hand column of the certificate)
-  function nums(tokens,from){
-    var out=[];for(var i=from;i<tokens.length;i++){var m=/^(\d+(?:\.\d+)?)°?$/.exec(tokens[i]);if(!m)break;out.push(parseFloat(m[1]));}return out;
+  // cells right after the label, stopping at the first word (the right-hand column of the certificate).
+  // ORC prints speeds with two decimals and angles with one decimal and a degree sign, so pieces the PDF
+  // split ("1 1.02", "13.1 1") are joined until they form a complete cell.
+  function nums(tokens,from,kind){
+    var full=kind==="ang"?/^\d+\.\d°$/:/^\d+\.\d\d$/,part=kind==="ang"?/^\d+(\.\d?)?$|^\d+\.\d$/:/^\d+(\.\d?)?$/;
+    var out=[],acc="";
+    for(var i=from;i<tokens.length;i++){
+      var c=acc+tokens[i];
+      if(full.test(c)){out.push(parseFloat(c));acc="";continue;}
+      if(part.test(c)&&c.length<7){acc=c;continue;}
+      break;
+    }
+    return out;
   }
   var start=-1;for(var i=0;i<lines.length;i++){if(compact(lines[i].text).indexOf("ratedboatvelocities")>=0){start=i;break;}}
   if(start<0)throw new Error("This PDF has no “Rated boat velocities” table. Is it an ORC certificate?");
   var tws=null,beatA=null,beatV=null,runV=null,gybeA=null,rows={};
   for(var j=start;j<lines.length&&j<start+60;j++){
     var tx=lines[j].text,c=compact(tx),tk=toks(tx);
-    if(!tws&&c.indexOf("windvelocity")===0){var w=[],re=/(\d+)\s*kt/g,m;var s=tk.join(" ");while((m=re.exec(s)))w.push(+m[1]);tws=w;continue;}
+    // wind speeds: the first line with several "N kt" values (on the label line, or on a line of their own)
+    if(!tws){var w=[],re=/(\d+)\s*kt\b/g,m;while((m=re.exec(tx)))w.push(+m[1]);if(w.length>=3){tws=w;continue;}}
     var labelEnd=function(word){var acc="";for(var k=0;k<tk.length;k++){acc+=tk[k].toLowerCase();if(acc===word)return k+1;}return -1;};
-    if(!beatA&&c.indexOf("beatangles")===0){beatA=nums(tk,labelEnd("beatangles"));continue;}
-    if(!beatV&&c.indexOf("beatvmg")===0){beatV=nums(tk,labelEnd("beatvmg"));continue;}
-    if(!runV&&c.indexOf("runvmg")===0){runV=nums(tk,labelEnd("runvmg"));continue;}
-    if(!gybeA&&c.indexOf("gybeangles")===0){gybeA=nums(tk,labelEnd("gybeangles"));break;}
+    if(!beatA&&c.indexOf("beatangles")===0){beatA=nums(tk,labelEnd("beatangles"),"ang");continue;}
+    if(!beatV&&c.indexOf("beatvmg")===0){beatV=nums(tk,labelEnd("beatvmg"),"spd");continue;}
+    if(!runV&&c.indexOf("runvmg")===0){runV=nums(tk,labelEnd("runvmg"),"spd");continue;}
+    if(!gybeA&&c.indexOf("gybeangles")===0){gybeA=nums(tk,labelEnd("gybeangles"),"ang");break;}
     var am=/^(\d{2,3})°$/.exec(tk[0]||"");
-    if(am&&+am[1]>0&&+am[1]<=180&&!rows[am[1]])rows[am[1]]=nums(tk,1);
+    if(am&&+am[1]>0&&+am[1]<=180&&!rows[am[1]])rows[am[1]]=nums(tk,1,"spd");
   }
-  if(!tws||tws.length<2)throw new Error("Could not read the wind speeds (Wind Velocity row).");
+  if(!tws)throw new Error("Could not read the wind speeds (Wind Velocity row).");
   var n=tws.length,miss=[];
   function chk(name,a){if(!a||a.length<n)miss.push(name);else a.length=n;}
   chk("Beat Angles",beatA);chk("Beat VMG",beatV);chk("Run VMG",runV);chk("Gybe Angles",gybeA);
@@ -2290,8 +2299,6 @@ function orcPolarFromLines(lines,title){
   return {name:(boat?boat+" ORC":"ORC certificate"),boat:boat,tws:tws,cols:cols,pts:true,demo:false,
     check:{beatA:beatA,beatV:beatV,gybeA:gybeA,runV:runV,angles:angs}};
 }
-
-
 function inflateWeb(u){
   var ds=new DecompressionStream("deflate"),w=ds.writable.getWriter();w.write(u).catch(function(){});w.close().catch(function(){});
   return new Response(ds.readable).arrayBuffer().then(function(b){return new Uint8Array(b);});

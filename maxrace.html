@@ -657,13 +657,13 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 
     <div>
       <h3>Polar</h3>
-      <p>The built-in demo polar is a generic placeholder, not your boat’s data. Paste or open your polar. Two formats: Expedition (one line per wind speed: TWS, then pairs of TWA and boat speed, so each wind speed can have its own beat and gybe angle, as in an ORC certificate), or a table (first row a label and the TWS values, then one row per TWA). Tab, semicolon, comma or space separated.</p>
+      <p>The built-in demo polar is a generic placeholder, not your boat’s data. Open your <b>ORC certificate PDF</b> and MaxRace builds the polar from it, or paste or open a polar file. Two formats: Expedition (one line per wind speed: TWS, then pairs of TWA and boat speed, so each wind speed can have its own beat and gybe angle, as in an ORC certificate), or a table (first row a label and the TWS values, then one row per TWA). Tab, semicolon, comma or space separated.</p>
       <textarea id="polarIn" spellcheck="false" placeholder="TWA\TWS	6	8	10	12	14	16	20
 52	...
 60	..."></textarea>
       <div class="row" style="margin-top:8px">
         <button class="btn primary" id="polarLoad">Use this polar</button>
-        <label class="btn" for="polarFile">Open file</label><input type="file" id="polarFile" accept=".pol,.txt,.csv" hidden>
+        <label class="btn" for="polarFile">Open file</label><input type="file" id="polarFile" accept=".pdf,.pol,.txt,.csv" hidden>
         <button class="btn" id="polarReset">Back to demo polar</button>
       </div>
       <div class="msg" id="polarMsg"></div>
@@ -2096,8 +2096,220 @@ $("polarLoad").onclick=function(){
     polarMsg("Loaded "+p.tws.length+" wind speeds ("+p.tws[0]+" to "+p.tws[p.tws.length-1]+" kn).","ok");}
   catch(e){polarMsg(e.message,"err");}
 };
+/* ---------- ORC certificate PDF -> polar (built-in PDF reader, works offline) ---------- */
+// Minimal PDF text extractor: Flate streams, Identity-H / simple fonts with ToUnicode, positions.
+// pdfLines(bytes, inflate) -> Promise<[{page, y, text}]>; inflate(Uint8Array) -> Promise<Uint8Array>
+async function pdfLines(bytes, inflate){
+  var L="";for(var i=0;i<bytes.length;i+=8192)L+=String.fromCharCode.apply(null,bytes.subarray(i,Math.min(i+8192,bytes.length)));
+  var objs={},re=/(\d+)\s+(\d+)\s+obj\b/g,m;
+  while((m=re.exec(L))){
+    var start=re.lastIndex,end=L.indexOf("endobj",start);if(end<0)break;
+    var body=L.slice(start,end),o={dict:body,data:null},si=body.search(/\bstream\r?\n/);
+    if(si>=0){
+      o.dict=body.slice(0,si);
+      var ds=start+si+body.slice(si).match(/^stream\r?\n/)[0].length,de=L.indexOf("endstream",ds);
+      // exact length when it is given directly, otherwise drop the line break before "endstream"
+      var lm=/\/Length\s+(\d+)(?!\s+\d+\s+R)/.exec(o.dict);
+      if(lm&&ds+(+lm[1])<=de)de=ds+(+lm[1]);else while(de>ds&&(bytes[de-1]===10||bytes[de-1]===13))de--;
+      var raw=bytes.subarray(ds,de);
+      o.raw=raw;
+    }
+    objs[m[1]]=o;re.lastIndex=end;
+  }
+  async function data(id){
+    var o=objs[id];if(!o||!o.raw)return "";
+    if(o.text!==undefined)return o.text;
+    var b=o.raw;
+    if(/\/FlateDecode/.test(o.dict)){try{b=await inflate(b);}catch(e){b=new Uint8Array(0);}}
+    var s="";for(var i=0;i<b.length;i+=8192)s+=String.fromCharCode.apply(null,b.subarray(i,Math.min(i+8192,b.length)));
+    return (o.text=s);
+  }
+  function ref(dict,key){var r=new RegExp("/"+key+"\\s+(\\d+)\\s+\\d+\\s+R").exec(dict);return r?r[1]:null;}
+  function hexStr(h){var o=[];h=h.replace(/\s+/g,"");if(h.length%2)h+="0";for(var i=0;i<h.length;i+=2)o.push(parseInt(h.substr(i,2),16));return o;}
+  async function cmapOf(fontId){
+    var f=objs[fontId];if(!f)return null;var tu=ref(f.dict,"ToUnicode");
+    var two=/Identity-H|Identity-V/.test(f.dict)||/\/Type0/.test(f.dict);
+    var map={};
+    if(tu){
+      var c=await data(tu),mm;
+      var bc=/beginbfchar([\s\S]*?)endbfchar/g;
+      while((mm=bc.exec(c))){var pr=/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g,p;while((p=pr.exec(mm[1]))){map[parseInt(p[1],16)]=u16(p[2]);}}
+      var br=/beginbfrange([\s\S]*?)endbfrange/g;
+      while((mm=br.exec(c))){
+        var pr2=/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*(<([0-9A-Fa-f]+)>|\[([^\]]*)\])/g,q;
+        while((q=pr2.exec(mm[1]))){
+          var lo=parseInt(q[1],16),hi=parseInt(q[2],16);
+          if(q[4]){var base=parseInt(q[4],16);for(var k=lo;k<=hi;k++)map[k]=String.fromCharCode(base+(k-lo));}
+          else{var arr=(q[5].match(/<([0-9A-Fa-f]+)>/g)||[]).map(function(x){return u16(x.slice(1,-1));});for(var k2=lo;k2<=hi;k2++)map[k2]=arr[k2-lo]||"";}
+        }
+      }
+      var cs=/begincodespacerange\s*<([0-9A-Fa-f]+)>/.exec(c);if(cs)two=cs[1].length>=4;
+    }
+    return {two:two,map:map,has:!!tu};
+  }
+  function u16(h){var s="";for(var i=0;i+3<h.length;i+=4)s+=String.fromCharCode(parseInt(h.substr(i,4),16));if(h.length===2)s=String.fromCharCode(parseInt(h,16));return s;}
+  function decode(bytesArr,font){
+    var s="";
+    if(font&&font.two){for(var i=0;i+1<bytesArr.length;i+=2){var c=bytesArr[i]*256+bytesArr[i+1];s+=font.map[c]!==undefined?font.map[c]:"";}}
+    else{for(var j=0;j<bytesArr.length;j++){var c2=bytesArr[j];s+=font&&font.map[c2]!==undefined?font.map[c2]:String.fromCharCode(c2);}}
+    return s;
+  }
+  // pages in document order
+  var pages=[];
+  var root=Object.keys(objs).filter(function(k){return /\/Type\s*\/Catalog/.test(objs[k].dict);})[0];
+  function kids(id,out){var o=objs[id];if(!o)return;if(/\/Type\s*\/Page\b/.test(o.dict)&&!/\/Type\s*\/Pages/.test(o.dict)){out.push(id);return;}
+    var k=/\/Kids\s*\[([^\]]*)\]/.exec(o.dict);if(k){(k[1].match(/(\d+)\s+\d+\s+R/g)||[]).forEach(function(r){kids(r.split(/\s+/)[0],out);});}}
+  if(root){var pr=ref(objs[root].dict,"Pages");if(pr)kids(pr,pages);}
+  if(!pages.length)pages=Object.keys(objs).filter(function(k){return /\/Type\s*\/Page\b/.test(objs[k].dict)&&!/\/Type\s*\/Pages/.test(objs[k].dict);});
+  var items=[];
+  for(var pi=0;pi<pages.length;pi++){
+    var pg=objs[pages[pi]],res=pg.dict,rr=ref(pg.dict,"Resources");if(rr&&objs[rr])res=objs[rr].dict;
+    // fonts: inline /Font << ... >> or a reference
+    var fd=/\/Font\s*<<([\s\S]*?)>>/.exec(res),fr=ref(res,"Font"),fontDict=fd?fd[1]:(fr&&objs[fr]?objs[fr].dict:"");
+    var fonts={},fm,fre=/\/([^\s\/<>\[\]]+)\s+(\d+)\s+\d+\s+R/g;
+    while((fm=fre.exec(fontDict))){fonts[fm[1]]=await cmapOf(fm[2]);}
+    // contents
+    var cids=[],c1=ref(pg.dict,"Contents"),ca=/\/Contents\s*\[([^\]]*)\]/.exec(pg.dict);
+    if(ca)cids=(ca[1].match(/(\d+)\s+\d+\s+R/g)||[]).map(function(x){return x.split(/\s+/)[0];});else if(c1)cids=[c1];
+    var content="";for(var ci=0;ci<cids.length;ci++)content+=(await data(cids[ci]))+"\n";
+    run(content,fonts,pi+1);
+  }
+  function mul(a,b){return [a[0]*b[0]+a[1]*b[2],a[0]*b[1]+a[1]*b[3],a[2]*b[0]+a[3]*b[2],a[2]*b[1]+a[3]*b[3],a[4]*b[0]+a[5]*b[2]+b[4],a[4]*b[1]+a[5]*b[3]+b[5]];}
+  function run(c,fonts,page){
+    var ctm=[1,0,0,1,0,0],stack=[],tm=[1,0,0,1,0,0],tlm=[1,0,0,1,0,0],font=null,size=1,lead=0,ops=[],i=0,n=c.length;
+    function show(arr){
+      var txt="";arr.forEach(function(e){if(typeof e==="number"){if(e<-180)txt+=" ";}else txt+=decode(e,font);});
+      if(!txt.trim())return;var m2=mul(tm,ctm);items.push({page:page,x:m2[4],y:m2[5],h:Math.abs(size*m2[3])||Math.abs(size),s:txt});
+    }
+    while(i<n){
+      var ch=c[i];
+      if(/\s/.test(ch)){i++;continue;}
+      if(ch==="%"){while(i<n&&c[i]!=="\n"&&c[i]!=="\r")i++;continue;}
+      if(ch==="("){var depth=1,b=[];i++;while(i<n&&depth>0){var d=c[i];if(d==="\\"){i++;var e=c[i];if(e==="n")b.push(10);else if(e==="r")b.push(13);else if(e==="t")b.push(9);else if(e==="b")b.push(8);else if(e==="f")b.push(12);else if(/[0-7]/.test(e)){var oc=e;while(oc.length<3&&/[0-7]/.test(c[i+1]))oc+=c[++i];b.push(parseInt(oc,8)&255);}else if(e==="\r"||e==="\n"){}else b.push(e.charCodeAt(0));i++;continue;}
+        if(d==="(")depth++;else if(d===")"){depth--;if(!depth){i++;break;}}b.push(d.charCodeAt(0)&255);i++;}ops.push(b);continue;}
+      if(ch==="<"&&c[i+1]!=="<"){var j=c.indexOf(">",i);ops.push(hexStr(c.slice(i+1,j)));i=j+1;continue;}
+      if(ch==="<"&&c[i+1]==="<"){var dd=1;i+=2;while(i<n&&dd>0){if(c[i]==="<"&&c[i+1]==="<"){dd++;i+=2;}else if(c[i]===">"&&c[i+1]===">"){dd--;i+=2;}else i++;}ops.push({dict:1});continue;}
+      if(ch==="["){ops.push("[");i++;continue;}
+      if(ch==="]"){var a=[];while(ops.length&&ops[ops.length-1]!=="[")a.unshift(ops.pop());ops.pop();ops.push({arr:a});i++;continue;}
+      if(ch==="/"){var nm=/^\/[^\s\/\[\]<>(){}%]*/.exec(c.slice(i,i+128))[0];ops.push({name:nm.slice(1)});i+=nm.length;continue;}
+      var t=/^[^\s\/\[\]<>(){}%]+/.exec(c.slice(i,i+64));if(!t){i++;continue;}t=t[0];i+=t.length;
+      if(/^[+-]?(\d+\.?\d*|\.\d+)$/.test(t)){ops.push(parseFloat(t));continue;}
+      // operator
+      var A=ops;ops=[];
+      switch(t){
+        case "q":stack.push(ctm.slice());break;
+        case "Q":ctm=stack.pop()||[1,0,0,1,0,0];break;
+        case "cm":ctm=mul(A.slice(-6),ctm);break;
+        case "BT":tm=[1,0,0,1,0,0];tlm=tm.slice();break;
+        case "Tf":font=fonts[(A[A.length-2]||{}).name]||null;size=A[A.length-1]||1;break;
+        case "TL":lead=A[0];break;
+        case "Tm":tm=A.slice(-6);tlm=tm.slice();break;
+        case "Td":tlm=mul([1,0,0,1,A[0],A[1]],tlm);tm=tlm.slice();break;
+        case "TD":lead=-A[1];tlm=mul([1,0,0,1,A[0],A[1]],tlm);tm=tlm.slice();break;
+        case "T*":tlm=mul([1,0,0,1,0,-lead],tlm);tm=tlm.slice();break;
+        case "Tj":show([A[A.length-1]]);break;
+        case "'":tlm=mul([1,0,0,1,0,-lead],tlm);tm=tlm.slice();show([A[A.length-1]]);break;
+        case "\"":tlm=mul([1,0,0,1,0,-lead],tlm);tm=tlm.slice();show([A[A.length-1]]);break;
+        case "TJ":show((A[A.length-1]||{}).arr||[]);break;
+        case "BI":var ei=c.indexOf("EI",i);i=ei<0?n:ei+2;break;
+      }
+    }
+  }
+  // group into lines: same page, y within 40% of the text height
+  items.sort(function(a,b){return a.page-b.page||b.y-a.y||a.x-b.x;});
+  var lines=[];
+  items.forEach(function(it){
+    var l=lines.length?lines[lines.length-1]:null;
+    if(l&&l.page===it.page&&Math.abs(l.y-it.y)<=Math.max(1.5,0.4*it.h))l.items.push(it);
+    else lines.push({page:it.page,y:it.y,items:[it]});
+  });
+  // document title from the info dictionary (literal or UTF-16 hex string)
+  var title="";
+  Object.keys(objs).some(function(k){
+    var d=objs[k].dict,t=/\/Title\s*\(((?:\\.|[^\\)])*)\)/.exec(d),h=/\/Title\s*<([0-9A-Fa-f\s]+)>/.exec(d);
+    if(t){title=t[1].replace(/\\([()\\])/g,"$1");}
+    else if(h){var b=hexStr(h[1]);if(b[0]===254&&b[1]===255){for(var i=2;i+1<b.length;i+=2)title+=String.fromCharCode(b[i]*256+b[i+1]);}else title=String.fromCharCode.apply(null,b);}
+    return !!title;
+  });
+  var out=lines.map(function(l){
+    l.items.sort(function(a,b){return a.x-b.x;});
+    return {page:l.page,y:l.y,text:l.items.map(function(x){return x.s;}).join(" ").replace(/\s+/g," ").trim()};
+  });
+  out.title=title;return out;
+}
+
+
+// ORC certificate -> polar. Reads the "Rated boat velocities in knots" table:
+// Wind Velocity (TWS), Beat Angles, Beat VMG, fixed TWA rows, Run VMG, Gybe Angles.
+// Beat and gybe points become boat speeds via VMG / cos(angle).
+function orcPolarFromLines(lines,title){
+  function compact(t){return t.replace(/\s+/g,"").toLowerCase();}
+  // tokens of a line, with numbers the PDF split in two put back together ("1 1.28" -> "11.28", "1 10°" -> "110°")
+  function toks(t){
+    var a=t.split(" "),o=[];
+    for(var i=0;i<a.length;i++){
+      if(/^\d$/.test(a[i])&&i+1<a.length&&/^\d/.test(a[i+1])){o.push(a[i]+a[i+1]);i++;}else o.push(a[i]);
+    }
+    return o;
+  }
+  // numbers right after the label, stopping at the first word (the right-hand column of the certificate)
+  function nums(tokens,from){
+    var out=[];for(var i=from;i<tokens.length;i++){var m=/^(\d+(?:\.\d+)?)°?$/.exec(tokens[i]);if(!m)break;out.push(parseFloat(m[1]));}return out;
+  }
+  var start=-1;for(var i=0;i<lines.length;i++){if(compact(lines[i].text).indexOf("ratedboatvelocities")>=0){start=i;break;}}
+  if(start<0)throw new Error("This PDF has no “Rated boat velocities” table. Is it an ORC certificate?");
+  var tws=null,beatA=null,beatV=null,runV=null,gybeA=null,rows={};
+  for(var j=start;j<lines.length&&j<start+60;j++){
+    var tx=lines[j].text,c=compact(tx),tk=toks(tx);
+    if(!tws&&c.indexOf("windvelocity")===0){var w=[],re=/(\d+)\s*kt/g,m;var s=tk.join(" ");while((m=re.exec(s)))w.push(+m[1]);tws=w;continue;}
+    var labelEnd=function(word){var acc="";for(var k=0;k<tk.length;k++){acc+=tk[k].toLowerCase();if(acc===word)return k+1;}return -1;};
+    if(!beatA&&c.indexOf("beatangles")===0){beatA=nums(tk,labelEnd("beatangles"));continue;}
+    if(!beatV&&c.indexOf("beatvmg")===0){beatV=nums(tk,labelEnd("beatvmg"));continue;}
+    if(!runV&&c.indexOf("runvmg")===0){runV=nums(tk,labelEnd("runvmg"));continue;}
+    if(!gybeA&&c.indexOf("gybeangles")===0){gybeA=nums(tk,labelEnd("gybeangles"));break;}
+    var am=/^(\d{2,3})°$/.exec(tk[0]||"");
+    if(am&&+am[1]>0&&+am[1]<=180&&!rows[am[1]])rows[am[1]]=nums(tk,1);
+  }
+  if(!tws||tws.length<2)throw new Error("Could not read the wind speeds (Wind Velocity row).");
+  var n=tws.length,miss=[];
+  function chk(name,a){if(!a||a.length<n)miss.push(name);else a.length=n;}
+  chk("Beat Angles",beatA);chk("Beat VMG",beatV);chk("Run VMG",runV);chk("Gybe Angles",gybeA);
+  var angs=Object.keys(rows).map(Number).sort(function(a,b){return a-b;});
+  angs.forEach(function(a){chk(a+"°",rows[a]);});
+  if(angs.length<3)miss.push("TWA rows");
+  if(miss.length)throw new Error("Incomplete table in the PDF: "+miss.join(", ")+".");
+  var D=Math.PI/180,cols=tws.map(function(w,j){
+    var pts=[[beatA[j],beatV[j]/Math.cos(beatA[j]*D)]];
+    angs.forEach(function(a){pts.push([a,rows[a][j]]);});
+    pts.push([gybeA[j],runV[j]/Math.abs(Math.cos(gybeA[j]*D))]);
+    pts.sort(function(x,y){return x[0]-y[0];});
+    pts=pts.filter(function(p,i){return i===0||p[0]>pts[i-1][0];});
+    return {a:pts.map(function(p){return p[0];}),v:pts.map(function(p){return Math.round(p[1]*100)/100;})};
+  });
+  var boat=(title||"").replace(/^ORC Certificate for\s*/i,"").trim();
+  return {name:(boat?boat+" ORC":"ORC certificate"),boat:boat,tws:tws,cols:cols,pts:true,demo:false,
+    check:{beatA:beatA,beatV:beatV,gybeA:gybeA,runV:runV,angles:angs}};
+}
+
+
+function inflateWeb(u){
+  var ds=new DecompressionStream("deflate"),w=ds.writable.getWriter();w.write(u).catch(function(){});w.close().catch(function(){});
+  return new Response(ds.readable).arrayBuffer().then(function(b){return new Uint8Array(b);});
+}
+function loadCertificate(f){
+  polarMsg("Reading the certificate…");
+  f.arrayBuffer().then(function(buf){return pdfLines(new Uint8Array(buf),inflateWeb);}).then(function(ls){
+    var p=orcPolarFromLines(ls,ls.title),c=p.check;delete p.check;
+    setPolar(p);save("polar",p);$("polarIn").value=polarToText(p);
+    var lo=Math.min.apply(null,c.beatA),hi=Math.max.apply(null,c.beatA),glo=Math.min.apply(null,c.gybeA),ghi=Math.max.apply(null,c.gybeA);
+    polarMsg("Read the ORC certificate"+(p.boat?" of "+p.boat:"")+": "+p.tws.length+" wind speeds ("+p.tws[0]+"–"+p.tws[p.tws.length-1]+" kn), beat "+lo+"–"+hi+"°, gybe "+glo+"–"+ghi+"°, rows "+c.angles.join("°, ")+"°.","ok");
+    // a boat still called NEW BOAT / MY BOAT takes the name from the certificate
+    if(p.boat&&/^(NEW BOAT|MY BOAT)( \d+)?$/.test(boatName||"MY BOAT")){boatName=p.boat.toUpperCase().slice(0,24);save("boat",boatName);$("boatIn").value=boatName;applyBoat();}
+  }).catch(function(err){polarMsg("Could not read this PDF: "+err.message,"err");});
+}
 $("polarFile").onchange=function(e){
   var f=e.target.files[0];if(!f)return;
+  if(/\.pdf$/i.test(f.name)||f.type==="application/pdf"){loadCertificate(f);e.target.value="";return;}
   var r=new FileReader();
   r.onload=function(){$("polarIn").value=r.result;
     try{var p=parsePolar(r.result,f.name.replace(/\.[^.]+$/,""));setPolar(p);save("polar",p);polarMsg("Loaded "+f.name+".","ok");}

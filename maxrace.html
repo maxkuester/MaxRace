@@ -2069,6 +2069,8 @@ function captureAll(){var d={};PKEYS.forEach(function(k){var v=load(k,undefined)
   }
   if(!activeProf()){activeId=profiles[0].id;saveProfiles();}
   renderProfiles();
+  // the claude.ai preview cannot hand out files; export works in the app and when the page is opened as a file
+  if(/claude/.test(location.host))$("profExport").hidden=true;
 })();
 $("boatSel").onchange=function(e){
   var v=e.target.value;

@@ -1371,9 +1371,19 @@ function drawMap(){
     if(fin(S.sog)&&fin(S.cog)&&fin(S.bsp)&&fin(S.hdg)){
       wx2+=Math.sin(S.cog*D2R)*S.sog-Math.sin(S.hdg*D2R)*S.bsp;wy2+=Math.cos(S.cog*D2R)*S.sog-Math.cos(S.hdg*D2R)*S.bsp;}
     var ocog=wrap360(Math.atan2(wx2,wy2)*R2D),oc=side>0?col("--port"):col("--stbd"),OL=Math.min(W,H)*0.22;
-    var e3=ray(ocog,OL),e4=ray(ocog,OL+34*d);
-    ctx.strokeStyle=oc;ctx.lineWidth=2.5*d;ctx.beginPath();ctx.moveTo(bp[0],bp[1]);ctx.lineTo(e3[0],e3[1]);ctx.stroke();
+    // the manoeuvre itself: turn at the set rate and current speed, through the wind (tack) or through dead downwind (gybe)
+    var h0=fin(S.hdg)?S.hdg:(fin(S.cog)?S.cog:0),v0=Math.max(1,fin(S.bsp)?S.bsp:(S.sog||0)),tdir=upw?side:-side;
+    var amt=((oh-h0)*tdir%360+360)%360,stepD=2,dsT=v0/3600*(stepD/manv.rate),ax=0,ay=0,hh=h0,arcP=[bp];
+    for(var aa=0;aa<amt;aa+=stepD){hh+=tdir*Math.min(stepD,amt-aa);ax+=Math.sin(hh*D2R)*dsT;ay+=Math.cos(hh*D2R)*dsT;arcP.push(sc([ax,ay]));}
+    var aEnd=arcP[arcP.length-1],radM=v0*0.514444/(manv.rate*D2R);
+    ctx.strokeStyle=oc;ctx.lineWidth=3.5*d;ctx.lineJoin="round";ctx.beginPath();
+    arcP.forEach(function(q,i){if(i)ctx.lineTo(q[0],q[1]);else ctx.moveTo(q[0],q[1]);});ctx.stroke();
+    var e3=[aEnd[0]+Math.sin(ocog*D2R)*OL,aEnd[1]-Math.cos(ocog*D2R)*OL],e4=[aEnd[0]+Math.sin(ocog*D2R)*(OL+34*d),aEnd[1]-Math.cos(ocog*D2R)*(OL+34*d)];
+    ctx.lineWidth=2.5*d;ctx.beginPath();ctx.moveTo(aEnd[0],aEnd[1]);ctx.lineTo(e3[0],e3[1]);ctx.stroke();
     tag((upw?"TACK ":"GYBE ")+deg3(ocog),e4[0],e4[1],oc,14);
+    // turning radius, written beside the arc (pushed out a little when the arc is tiny at this zoom)
+    var mid=arcP[Math.floor(arcP.length/2)],ox=mid[0]-bp[0],oy=mid[1]-bp[1],ol=Math.hypot(ox,oy)||1,push=Math.max(0,26*d-ol);
+    tag("R "+Math.round(radM)+" m · "+Math.round(amt)+"°",mid[0]+ox/ol*push+ox/ol*14*d,mid[1]+oy/ol*push+oy/ol*14*d,oc,12);
     if(fin(S.cog)){var e5=ray(S.cog,OL+34*d);tag("COG "+deg3(S.cog),e5[0],e5[1],col("--ink"),14);}
   }
   if(fin(S.cog)&&fin(S.sog)){var v=sc([Math.sin(S.cog*D2R)*S.sog/60,Math.cos(S.cog*D2R)*S.sog/60]);

@@ -1,11 +1,12 @@
 # Builds the MaxRace installers on GitHub's own Windows and Mac machines.
-# Run it from the Actions tab ("Run workflow"), or push a tag like v1.0.0.
+# Runs on every push to main, from the Actions tab ("Run workflow"), or on a tag like v1.0.0.
 # The installers appear at the bottom of the run page, under "Artifacts".
 name: Build MaxRace
 
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags: ["v*"]
 
 jobs:

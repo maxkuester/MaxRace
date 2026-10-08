@@ -609,7 +609,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 
     <div>
       <h3>Polar</h3>
-      <p>The built-in demo polar is a generic placeholder, not your boat’s data. Paste or open your polar as a table: first row is a label followed by TWS values, each following row is a TWA followed by boat speeds. Tab, semicolon, comma or space separated, as exported by qtVlm or Expedition.</p>
+      <p>The built-in demo polar is a generic placeholder, not your boat’s data. Paste or open your polar. Two formats: Expedition (one line per wind speed: TWS, then pairs of TWA and boat speed, so each wind speed can have its own beat and gybe angle, as in an ORC certificate), or a table (first row a label and the TWS values, then one row per TWA). Tab, semicolon, comma or space separated.</p>
       <textarea id="polarIn" spellcheck="false" placeholder="TWA\TWS	6	8	10	12	14	16	20
 52	...
 60	..."></textarea>
@@ -688,7 +688,7 @@ function makeDemo(){
     return Math.round(vmax[j]*shape[i]*deep*100)/100;});});
   return {name:"Demo polar",tws:tws,twa:twa,bsp:bsp,demo:true};
 }
-var P=load("polar",null)||makeDemo();
+var P=normPolar(load("polar",null)||makeDemo());
 var course=load("course",null)||{marks:[],seq:[],idx:0,auto:true,radius:100};
 var rnd={armed:false,min:Infinity};
 
@@ -700,22 +700,44 @@ function seg(arr,x){
   for(var i=0;i<n-1;i++){if(x<=arr[i+1])return [i,i+1,(x-arr[i])/(arr[i+1]-arr[i])];}
   return [n-1,n-1,0];
 }
+// polar stored per wind speed: P.cols[j] = {a:[TWA...], v:[BSP...]} for P.tws[j].
+// Each wind speed can have its own angles, as in ORC certificates (beat and gybe angle change with the wind).
+function normPolar(p){
+  if(p&&p.cols)return p;
+  p.cols=p.tws.map(function(w,j){return {a:p.twa.slice(),v:p.bsp.map(function(r){return r[j];})};});
+  return p;
+}
+function colBsp(c,a){
+  var min=c.a[0],sc=1;
+  if(a<min){sc=Math.max(0,(a-min*0.5)/(min*0.5));a=min;}
+  var S=seg(c.a,a);return (c.v[S[0]]+(c.v[S[1]]-c.v[S[0]])*S[2])*sc;
+}
 function polarBsp(twa,tws){
-  var a=Math.abs(wrap180(twa)), scale=1, minA=P.twa[0];
-  if(a<minA){scale=Math.max(0,(a-minA*0.5)/(minA*0.5));a=minA;}
-  if(tws<P.tws[0]){scale*=Math.max(0,tws/P.tws[0]);}
-  var A=seg(P.twa,a), W=seg(P.tws,tws);
-  var r0=P.bsp[A[0]], r1=P.bsp[A[1]];
-  var v0=r0[W[0]]+(r0[W[1]]-r0[W[0]])*W[2];
-  var v1=r1[W[0]]+(r1[W[1]]-r1[W[0]])*W[2];
-  return (v0+(v1-v0)*A[2])*scale;
+  var a=Math.abs(wrap180(twa)), scale=1;
+  if(tws<P.tws[0]){scale=Math.max(0,tws/P.tws[0]);}
+  var W=seg(P.tws,tws),v0=colBsp(P.cols[W[0]],a),v1=colBsp(P.cols[W[1]],a);
+  return (v0+(v1-v0)*W[2])*scale;
 }
 var tgtCache={};
 function targets(tws){
   var key=Math.round(tws*10);
   if(tgtCache[key])return tgtCache[key];
   var up={twa:45,bsp:0,vmg:-1},dn={twa:150,bsp:0,vmg:-1};
-  for(var a=25;a<=180;a+=0.5){
+  // Expedition-style polars carry the optimum points themselves (ORC beat and gybe angles): use them as they are
+  if(P.pts){
+    // best VMG point; when two points are within 0.3% (flat VMG curve, rounding) take the faster one, closer to the beam
+    var best=function(c,isUp){var pts=[];c.a.forEach(function(a,i){if(isUp?a>=90:a<=90)return;pts.push({twa:a,bsp:c.v[i],vmg:Math.abs(c.v[i]*Math.cos(a*D2R))});});
+      if(!pts.length)return null;var mx=Math.max.apply(null,pts.map(function(p){return p.vmg;}));
+      return pts.filter(function(p){return p.vmg>=mx*0.997;}).sort(function(x,y){return Math.abs(x.twa-90)-Math.abs(y.twa-90);})[0];};
+    var Wp=seg(P.tws,tws),f=Wp[2],sc=tws<P.tws[0]?Math.max(0,tws/P.tws[0]):1;
+    var mixp=function(isUp){var a=best(P.cols[Wp[0]],isUp),b=best(P.cols[Wp[1]],isUp);if(!a||!b)return null;
+      var t=a.twa+(b.twa-a.twa)*f,bs=(a.bsp+(b.bsp-a.bsp)*f)*sc;return {twa:t,bsp:bs,vmg:Math.abs(bs*Math.cos(t*D2R))};};
+    var u2=mixp(true),d2=mixp(false);
+    if(u2&&d2)return (tgtCache[key]={up:u2,dn:d2});
+  }
+  // search only the angles the polar really covers (an ORC table stops at 150 deg, so no invented dead run)
+  var W=seg(P.tws,tws),amax=Math.min(P.cols[W[0]].a[P.cols[W[0]].a.length-1],P.cols[W[1]].a[P.cols[W[1]].a.length-1]);
+  for(var a=25;a<=amax+1e-9;a+=0.1){
     var b=polarBsp(a,tws), v=b*Math.cos(a*D2R);
     if(a<90&&v>up.vmg)up={twa:a,bsp:b,vmg:v};
     if(a>90&&-v>dn.vmg)dn={twa:a,bsp:b,vmg:-v};
@@ -724,8 +746,22 @@ function targets(tws){
 }
 function parsePolar(text,name){
   var rows=text.split(/\r?\n/).map(function(l){return l.trim();})
-    .filter(function(l){return l&&l.charAt(0)!=="#";})
+    .filter(function(l){return l&&l.charAt(0)!=="#"&&l.charAt(0)!=="!";})
     .map(function(l){return l.split(/[\t;, ]+/);});
+  // Expedition format: each line is TWS followed by TWA/BSP pairs
+  if(rows.length&&fin(Number(rows[0][0]))&&rows[0].length>=5&&rows[0].length%2===1){
+    var ex=[];
+    rows.forEach(function(r){
+      var w=Number(r[0]),pr=[];if(!fin(w)||w<=0)return;
+      for(var k=1;k+1<r.length;k+=2){var a=Number(r[k]),v=Number(r[k+1]);if(fin(a)&&fin(v)&&a>0&&a<=180&&v>0)pr.push([a,v]);}
+      pr.sort(function(x,y){return x[0]-y[0];});
+      pr=pr.filter(function(q,i){return i===0||q[0]>pr[i-1][0];});
+      if(pr.length>=3)ex.push({w:w,a:pr.map(function(q){return q[0];}),v:pr.map(function(q){return q[1];})});
+    });
+    ex.sort(function(x,y){return x.w-y.w;});
+    if(ex.length<2)throw new Error("Expedition format: need at least two wind speeds with three angle/speed pairs each.");
+    return {name:name||"Custom polar",tws:ex.map(function(c){return c.w;}),cols:ex.map(function(c){return {a:c.a,v:c.v};}),pts:true,demo:false};
+  }
   if(rows.length<4)throw new Error("Need a header row of TWS values and at least three TWA rows.");
   var tws=rows[0].slice(1).map(Number);
   if(tws.length<2||!tws.every(fin))throw new Error("First row must be a label followed by TWS numbers.");
@@ -739,9 +775,9 @@ function parsePolar(text,name){
   if(twa.length<3)throw new Error("Could not read at least three TWA rows with a speed for every TWS column.");
   for(var i=1;i<twa.length;i++)if(twa[i]<=twa[i-1])throw new Error("TWA rows must increase from top to bottom.");
   for(var j=1;j<tws.length;j++)if(tws[j]<=tws[j-1])throw new Error("TWS values must increase from left to right.");
-  return {name:name||"Custom polar",tws:tws,twa:twa,bsp:bsp,demo:false};
+  return normPolar({name:name||"Custom polar",tws:tws,twa:twa,bsp:bsp,demo:false});
 }
-function setPolar(p){P=p;tgtCache={};$("polarText").textContent=p.name+(p.demo?" (placeholder)":"");}
+function setPolar(p){P=normPolar(p);tgtCache={};$("polarText").textContent=p.name+(p.demo?" (placeholder)":"");}
 
 /* ---------- data ---------- */
 var raw={}, S={}, damp=load("damp",0.35);
@@ -1936,12 +1972,13 @@ $("nmConnect").onclick=function(){setSource("nmea");connectNM();};
 $("skConnect").onclick=function(){setSource("sk");connectSK($("skUrl").value.trim());};
 
 function polarToText(p){
-  return ["TWA\\TWS"].concat(p.tws).join("\t")+"\n"+p.twa.map(function(a,i){return [a].concat(p.bsp[i]).join("\t");}).join("\n");
+  p=normPolar(p);
+  return "!Expedition polar\n"+p.tws.map(function(w,j){var c=p.cols[j],o=[w];c.a.forEach(function(a,i){o.push(a,c.v[i]);});return o.join("\t");}).join("\n");
 }
 function polarMsg(t,c){var m=$("polarMsg");m.textContent=t;m.className="msg "+(c||"");}
 $("polarLoad").onclick=function(){
   try{var p=parsePolar($("polarIn").value,"Custom polar");setPolar(p);save("polar",p);
-    polarMsg("Loaded "+p.twa.length+" TWA rows by "+p.tws.length+" TWS columns ("+p.tws[0]+" to "+p.tws[p.tws.length-1]+" kn).","ok");}
+    polarMsg("Loaded "+p.tws.length+" wind speeds ("+p.tws[0]+" to "+p.tws[p.tws.length-1]+" kn).","ok");}
   catch(e){polarMsg(e.message,"err");}
 };
 $("polarFile").onchange=function(e){

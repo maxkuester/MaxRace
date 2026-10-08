@@ -9,6 +9,9 @@ on:
     branches: [main]
     tags: ["v*"]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -32,3 +35,16 @@ jobs:
             dist/*.exe
             dist/*.dmg
           if-no-files-found: error
+      # fixed public download links:
+      #   https://github.com/<owner>/<repo>/releases/latest/download/MaxRace-Setup.exe
+      #   https://github.com/<owner>/<repo>/releases/latest/download/MaxRace.dmg
+      - uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: latest
+          name: MaxRace (latest build)
+          make_latest: "true"
+          body: "Windows: download MaxRace-Setup.exe and double-click it. Mac: download MaxRace.dmg, open it and drag MaxRace to Applications."
+          files: |
+            dist/MaxRace-Setup.exe
+            dist/MaxRace.dmg

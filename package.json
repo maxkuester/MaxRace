@@ -19,10 +19,29 @@
   "build": {
     "appId": "com.maxrace.dash",
     "productName": "MaxRace",
-    "files": ["main.js", "server.js", "maxrace.html", "fonts/**", "build/icon.png"],
-    "directories": { "buildResources": "build", "output": "dist" },
+    "files": [
+      "main.js",
+      "server.js",
+      "maxrace.html",
+      "fonts/**",
+      "build/icon.png"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
     "artifactName": "MaxRace-${version}-${os}-${arch}.${ext}",
-    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.ico" },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
@@ -32,7 +51,27 @@
       "shortcutName": "MaxRace",
       "artifactName": "MaxRace-Setup.${ext}"
     },
-    "mac": { "target": [{ "target": "dmg", "arch": ["universal"] }], "category": "public.app-category.sports", "icon": "build/icon.png" },
-    "linux": { "target": ["AppImage"], "category": "Utility", "icon": "build/icon.png" }
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "category": "public.app-category.sports",
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility",
+      "icon": "build/icon.png"
+    },
+    "dmg": {
+      "artifactName": "MaxRace.${ext}"
+    }
   }
 }

@@ -514,6 +514,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
       <div class="ctlrow">
         <button class="sbtn pin" id="pPin">Ping pin</button>
         <button class="sbtn rc" id="pBoat">Ping boat end</button>
+        <button class="sbtn" id="lnGps" style="flex:.6">GPS</button>
       </div>
       <div class="ctlrow">
         <button class="sbtn" data-cd="300">5′</button><button class="sbtn" data-cd="240">4′</button><button class="sbtn" data-cd="60">1′</button>
@@ -557,6 +558,33 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
         <span class="row"><button class="btn" id="aisAll">Select all</button><button class="btn" id="aisNone">Select none</button></span></div>
       <p style="margin-top:6px">Tick the boats to follow. The selection is used with "Selected only" and is kept for next time.</p>
       <ul class="mklist aislist" id="aisList"></ul>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="lnDlg">
+  <div class="dlg">
+    <div class="row" style="justify-content:space-between"><h2>Start line by coordinates</h2><button class="btn" id="lnClose">Close</button></div>
+    <div>
+      <h3 style="color:var(--target)">Pin end</h3>
+      <div class="row">
+        <label>Lat <input type="text" id="lnPinLat" placeholder="45°39.250'N" style="max-width:140px"></label>
+        <label>Lon <input type="text" id="lnPinLon" placeholder="013°44.100'E" style="max-width:140px"></label>
+        <label>or course mark <select id="lnPinMk" class="sel"></select></label>
+      </div>
+    </div>
+    <div>
+      <h3>Boat end (committee)</h3>
+      <div class="row">
+        <label>Lat <input type="text" id="lnBoatLat" placeholder="45°39.300'N" style="max-width:140px"></label>
+        <label>Lon <input type="text" id="lnBoatLon" placeholder="013°44.500'E" style="max-width:140px"></label>
+        <label>or course mark <select id="lnBoatMk" class="sel"></select></label>
+      </div>
+    </div>
+    <div>
+      <p>Coordinates as 45°39.250'N, 45 39.250 N, 45 39 15 N or 45.6542. Decimal comma is fine. West can be W or O. Leave an end empty to keep it as it is (pinged or set before).</p>
+      <div class="row" style="margin-top:6px"><button class="btn primary" id="lnSave">Set line</button><button class="btn" id="lnSwap">Swap ends</button></div>
+      <div class="msg" id="lnMsg"></div>
     </div>
   </div>
 </dialog>
@@ -2061,6 +2089,46 @@ $("stZoom").setAttribute("aria-pressed",stAuto);$("stZoom").textContent=stAuto?"
 $("pPin").onclick=function(){ping("pin");};
 $("demoBtn").onclick=function(){if(source==="sim"){demoLine();$("cdStop").textContent="Stop";}};
 $("pBoat").onclick=function(){ping("boat");};
+/* start line ends typed as GPS coordinates or taken from a course mark */
+function lnMsg(t,c){var m=$("lnMsg");m.textContent=t;m.className="msg "+(c||"");}
+function lnDesc(){
+  if(!line||!line.pin||!line.boat)return "";
+  var bd=bearDist(line.pin.lat,line.pin.lon,line.boat.lat,line.boat.lon);
+  return "Line now: "+Math.round(bd.d*1852)+" m, pin → boat "+deg3(bd.b)+" true.";
+}
+function lnFill(){
+  ["pin","boat"].forEach(function(k){
+    var K=k==="pin"?"Pin":"Boat",e=line&&!lineDemo?line[k]:null;
+    $("ln"+K+"Lat").value=e?fmtCoord(e.lat,true):"";$("ln"+K+"Lon").value=e?fmtCoord(e.lon,false):"";
+    var sel=$("ln"+K+"Mk");sel.innerHTML='<option value="">—</option>'+course.marks.map(function(m){return '<option value="'+m.id+'">'+esc(m.name)+'</option>';}).join("");
+    sel.onchange=function(){var m=markById(sel.value);if(m){$("ln"+K+"Lat").value=fmtCoord(m.lat,true);$("ln"+K+"Lon").value=fmtCoord(m.lon,false);}};
+  });
+  lnMsg(lnDesc());
+}
+$("lnGps").onclick=function(){lnFill();$("lnDlg").showModal();};
+$("lnClose").onclick=function(){$("lnDlg").close();};
+$("lnSwap").onclick=function(){
+  ["Lat","Lon"].forEach(function(q){var a=$("lnPin"+q).value;$("lnPin"+q).value=$("lnBoat"+q).value;$("lnBoat"+q).value=a;});
+  lnMsg("Ends swapped. Press Set line to use them.");
+};
+$("lnSave").onclick=function(){
+  var nl={},bad=[];
+  ["pin","boat"].forEach(function(k){
+    var K=k==="pin"?"Pin":"Boat",ta=$("ln"+K+"Lat").value.trim(),to=$("ln"+K+"Lon").value.trim();
+    if(!ta&&!to){if(line&&!lineDemo&&line[k])nl[k]=line[k];return;}
+    var la=parseCoord(ta,true),lo=parseCoord(to,false);
+    if(!fin(la)||!fin(lo)){bad.push(k==="pin"?"pin":"boat end");return;}
+    nl[k]={lat:la,lon:lo};
+  });
+  if(bad.length){lnMsg("Cannot read the coordinates of the "+bad.join(" and the ")+".","err");return;}
+  if(nl.pin&&nl.boat){var dd=bearDist(nl.pin.lat,nl.pin.lon,nl.boat.lat,nl.boat.lon).d*1852;
+    if(dd<5){lnMsg("The two ends are only "+dd.toFixed(0)+" m apart. Check the coordinates.","err");return;}
+    if(dd>5000){lnMsg("The two ends are "+(dd/1852).toFixed(1)+" nm apart. Check the coordinates.","err");return;}}
+  line=nl;lineDemo=false;save("line",line);
+  lnMsg((line.pin&&line.boat?"Line set. ":"Saved. Set the other end too. ")+lnDesc(),"ok");
+  sMsg(line.pin&&line.boat?"Line set from coordinates.":"One end set from coordinates.");
+  if(view==="start")drawStart();
+};
 [].forEach.call(document.querySelectorAll("[data-cd]"),function(b){b.onclick=function(){setCD(Number(b.getAttribute("data-cd")));sMsg("");};});
 $("cdSync").onclick=function(){var r=cdRem(Date.now());if(!cd.run||!fin(r)){sMsg("Start the timer first.");return;}var r2=Math.max(0,Math.round(r/60)*60);cd.end=Date.now()+r2*1000;};
 $("cdStop").onclick=function(){if(cd.run){cd.rem=cdRem(Date.now());cd.run=false;$("cdStop").textContent="Go";}else if(fin(cd.rem)){setCD(cd.rem);$("cdStop").textContent="Stop";}};

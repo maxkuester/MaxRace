@@ -47,6 +47,8 @@ if (!app.requestSingleInstanceLock()) {
         { type: "separator" },
         process.platform === "darwin" ? { role: "close" } : { role: "quit" },
       ]},
+      // without an Edit menu, copy and paste do not work in the window (Cmd/Ctrl+C, V, X, A)
+      { role: "editMenu" },
       { label: "View", submenu: [
         { label: "Full screen", accelerator: process.platform === "darwin" ? "Ctrl+Cmd+F" : "F11", click: () => win && win.setFullScreen(!win.isFullScreen()) },
         { role: "reload" },
@@ -71,6 +73,13 @@ if (!app.requestSingleInstanceLock()) {
     win.loadURL(`http://127.0.0.1:${srv.port}/`);
     win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: "deny" }; });
     win.on("closed", () => { win = null; });
+    // right click: cut / copy / paste in text boxes, copy on selected text
+    win.webContents.on("context-menu", (e, p) => {
+      const items = p.isEditable
+        ? [{ role: "undo" }, { type: "separator" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { type: "separator" }, { role: "selectAll" }]
+        : p.selectionText ? [{ role: "copy" }] : [];
+      if (items.length) Menu.buildFromTemplate(items).popup({ window: win });
+    });
     // Esc leaves full screen
     win.webContents.on("before-input-event", (e, input) => {
       if (input.type === "keyDown" && input.key === "Escape" && win.isFullScreen()) win.setFullScreen(false);

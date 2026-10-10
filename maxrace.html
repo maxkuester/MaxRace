@@ -377,6 +377,14 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
 .repbar .btn{border:1px solid var(--line);color:var(--ink)}.repbar .btn.primary{background:var(--accent);border-color:var(--accent);color:#000}
 .repbar .spacer{flex:1}
 #repFrame{flex:1;width:100%;border:0;background:#fff}
+/* ---- coordinate entry: degrees, minutes, hemisphere ---- */
+.cin{display:inline-flex;align-items:center;gap:3px;font-family:var(--digits)}
+.cin .cl{font-family:var(--num);font-weight:700;color:var(--muted);margin-right:3px;min-width:26px}
+.dlg .cin input{width:56px;text-align:right;font-family:var(--digits);font-size:1rem;padding:7px 6px}
+.dlg .cin input.cm{width:84px}
+.cin .u{color:var(--muted)}
+.dlg .cin .hem{min-width:40px;min-height:36px;font-family:var(--num);font-weight:700;font-size:1rem;border:1px solid var(--accent);color:var(--accent);background:#000;border-radius:4px}
+.cin.bad input{border-color:var(--port)}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 </head>
@@ -614,21 +622,21 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
     <div>
       <h3 style="color:var(--target)">Pin end</h3>
       <div class="row">
-        <label>Lat <input type="text" id="lnPinLat" placeholder="45°39.250'N" style="max-width:140px"></label>
-        <label>Lon <input type="text" id="lnPinLon" placeholder="013°44.100'E" style="max-width:140px"></label>
+        <span class="cin" id="lnPinLat" data-lat="1" data-pair="lnPinLon"></span>
+        <span class="cin" id="lnPinLon" data-lat="0" data-pair="lnPinLat"></span>
         <label>or course mark <select id="lnPinMk" class="sel"></select></label>
       </div>
     </div>
     <div>
       <h3>Boat end (committee)</h3>
       <div class="row">
-        <label>Lat <input type="text" id="lnBoatLat" placeholder="45°39.300'N" style="max-width:140px"></label>
-        <label>Lon <input type="text" id="lnBoatLon" placeholder="013°44.500'E" style="max-width:140px"></label>
+        <span class="cin" id="lnBoatLat" data-lat="1" data-pair="lnBoatLon"></span>
+        <span class="cin" id="lnBoatLon" data-lat="0" data-pair="lnBoatLat"></span>
         <label>or course mark <select id="lnBoatMk" class="sel"></select></label>
       </div>
     </div>
     <div>
-      <p>Coordinates as 45°39.250'N, 45 39.250 N, 45 39 15 N or 45.6542. Decimal comma is fine. West can be W or O. Leave an end empty to keep it as it is (pinged or set before).</p>
+      <p>Type degrees and minutes in the two boxes, tap N/S or E/W to switch hemisphere. Decimal degrees go in the first box alone (45.6542). You can also paste a whole position, like 45°39.250'N 013°44.100'E, into any box. Leave an end empty to keep it as it is (pinged or set before).</p>
       <div class="row" style="margin-top:6px"><button class="btn primary" id="lnSave">Set line</button><button class="btn" id="lnSwap">Swap ends</button></div>
       <div class="msg" id="lnMsg"></div>
     </div>
@@ -654,14 +662,14 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
       <ul class="mklist" id="mkList"></ul>
       <div class="row" style="margin-top:8px">
         <label>Name <input type="text" id="mkName" placeholder="WINDWARD" style="max-width:140px"></label>
-        <label>Lat <input type="text" id="mkLat" placeholder="43°36.072'N" style="max-width:130px"></label>
-        <label>Lon <input type="text" id="mkLon" placeholder="007°24.000'E" style="max-width:130px"></label>
+        <span class="cin" id="mkLat" data-lat="1" data-pair="mkLon"></span>
+        <span class="cin" id="mkLon" data-lat="0" data-pair="mkLat"></span>
       </div>
       <div class="row" style="margin-top:6px">
         <button class="btn primary" id="mkAdd">Add mark</button>
         <button class="btn" id="mkHere">Add at boat position</button>
       </div>
-      <p style="margin-top:8px">Coordinates as 43°36.072'N, 43 36.072 N, 43 36 04 N or 43.6012. Decimal comma is fine. West can be W or O.</p>
+      <p style="margin-top:8px">Type degrees and minutes in the two boxes, tap N/S or E/W to switch hemisphere. Decimal degrees go in the first box alone (43.6012). Pasting a whole position into any box works too.</p>
       <div class="msg" id="crsMsg"></div>
     </div>
 
@@ -1622,6 +1630,62 @@ function aisSentence(f){
 }
 
 
+/* ---------- coordinate fields: degrees | minutes | hemisphere button, no symbols to type ---------- */
+function cinInit(box){
+  var lat=box.getAttribute("data-lat")==="1";
+  box.innerHTML='<span class="cl">'+(lat?"Lat":"Lon")+'</span><input class="cd" inputmode="decimal" autocomplete="off" placeholder="'+(lat?"45":"013")+'" aria-label="'+(lat?"Latitude":"Longitude")+' degrees"><span class="u">°</span>'+
+    '<input class="cm" inputmode="decimal" autocomplete="off" placeholder="39.250" aria-label="minutes"><span class="u">′</span>'+
+    '<button type="button" class="hem" aria-label="Hemisphere">'+(lat?"N":"E")+'</button>';
+  var d=box.querySelector(".cd"),m=box.querySelector(".cm"),h=box.querySelector(".hem");
+  h.onclick=function(){h.textContent=lat?(h.textContent==="N"?"S":"N"):(h.textContent==="E"?"W":"E");box.classList.remove("bad");};
+  // a minus sign or a hemisphere letter typed in the boxes switches the hemisphere instead
+  [d,m].forEach(function(inp){
+    inp.addEventListener("input",function(){
+      var v=inp.value,u=v.toUpperCase();
+      if(/-/.test(v)){h.textContent=lat?"S":"W";}
+      var hl=(u.match(lat?/[NS]/:/[EWO]/)||[])[0];if(hl)h.textContent=hl==="O"?"W":hl;
+      var c=v.replace(/[^\d.,]/g,"");if(c!==v)inp.value=c;
+      box.classList.remove("bad");
+      // degrees typed in full: move on to the minutes
+      if(inp===d&&!/[.,]/.test(c)&&c.length>=(lat?2:3))m.focus();
+    });
+    // pasting a whole position (or a lat/lon pair) fills the boxes
+    inp.addEventListener("paste",function(e){
+      var t=(e.clipboardData||window.clipboardData).getData("text");if(!t)return;
+      var pr=splitPair(t),pb=$(box.getAttribute("data-pair"));
+      if(pr){e.preventDefault();var a=parseCoord(pr[0],true),b=parseCoord(pr[1],false);
+        if(fin(a)&&fin(b)){cSet(lat?box.id:pb.id,a);cSet(lat?pb.id:box.id,b);return;}}
+      var v=parseCoord(t,lat);
+      if(fin(v)&&/[\s°'′"NSEWO]/i.test(t.trim())){e.preventDefault();cSet(box.id,v);}
+    });
+  });
+}
+// "45°39.250'N 013°44.100'E", "45.6542, 13.7351", "45 39.25 N 13 44.1 E"
+function splitPair(t){
+  var u=String(t).trim().toUpperCase().replace(/,(?=\d)/g,"."),m=/^(.*?[NS])\s*[,;\/]?\s*(.*?[EWO])$/.exec(u);
+  if(m)return [m[1],m[2]];
+  m=/^(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)$/.exec(u.replace(/\.\s/,", "));
+  return m?[m[1],m[2]]:null;
+}
+// value in decimal degrees; null when both boxes are empty, NaN when they cannot be read
+function cGet(id){
+  var box=$(id),lat=box.getAttribute("data-lat")==="1",d=box.querySelector(".cd").value.trim().replace(",","."),m=box.querySelector(".cm").value.trim().replace(",",".");
+  if(!d&&!m)return null;
+  var dv=Number(d||"0"),mv=Number(m||"0"),neg=/[SW]/.test(box.querySelector(".hem").textContent);
+  var bad=!isFinite(dv)||!isFinite(mv)||dv<0||mv<0||mv>=60||(m&&dv%1!==0)||dv+mv/60>(lat?90:180);
+  box.classList.toggle("bad",!!bad);
+  if(bad)return NaN;
+  var v=dv+mv/60;return neg?-v:v;
+}
+function cSet(id,v){
+  var box=$(id),lat=box.getAttribute("data-lat")==="1",d=box.querySelector(".cd"),m=box.querySelector(".cm"),h=box.querySelector(".hem");
+  box.classList.remove("bad");
+  if(v==null||!fin(v)){d.value="";m.value="";return;}
+  var a=Math.abs(v),dg=Math.floor(a),mn=(a-dg)*60;if(mn>=59.9995){dg++;mn=0;}
+  d.value=String(dg);m.value=mn.toFixed(3);h.textContent=lat?(v<0?"S":"N"):(v<0?"W":"E");
+}
+[].forEach.call(document.querySelectorAll(".cin"),cinInit);
+
 /* ---------- course: marks, sequence, active waypoint ---------- */
 function saveCourse(){save("course",course);}
 function markById(id){for(var i=0;i<course.marks.length;i++)if(course.marks[i].id===id)return course.marks[i];return null;}
@@ -1720,12 +1784,12 @@ $("mkList").onclick=function(e){
   saveCourse();renderCourse();
 };
 $("mkAdd").onclick=function(){
-  var la=parseCoord($("mkLat").value,true),lo=parseCoord($("mkLon").value,false);
-  if(!fin(la)){crsMsg("Latitude not recognised. Example: 43°36.072'N","err");return;}
-  if(!fin(lo)){crsMsg("Longitude not recognised. Example: 007°24.000'E","err");return;}
+  var la=cGet("mkLat"),lo=cGet("mkLon");
+  if(!fin(la)){crsMsg(la==null?"Enter the latitude.":"Latitude not recognised: degrees up to 90, minutes under 60.","err");return;}
+  if(!fin(lo)){crsMsg(lo==null?"Enter the longitude.":"Longitude not recognised: degrees up to 180, minutes under 60.","err");return;}
   addMark($("mkName").value.trim(),la,lo,false);saveCourse();renderCourse();
   crsMsg("Added "+fmtCoord(la,true)+" "+fmtCoord(lo,false)+". Add it to the sequence with “+ sequence”.","ok");
-  $("mkName").value="";$("mkLat").value="";$("mkLon").value="";
+  $("mkName").value="";cSet("mkLat",null);cSet("mkLon",null);
 };
 $("mkHere").onclick=function(){
   if(!fin(S.lat)){crsMsg("No GPS position yet.","err");return;}
@@ -2146,24 +2210,23 @@ function lnDesc(){
 function lnFill(){
   ["pin","boat"].forEach(function(k){
     var K=k==="pin"?"Pin":"Boat",e=line&&!lineDemo?line[k]:null;
-    $("ln"+K+"Lat").value=e?fmtCoord(e.lat,true):"";$("ln"+K+"Lon").value=e?fmtCoord(e.lon,false):"";
+    cSet("ln"+K+"Lat",e?e.lat:null);cSet("ln"+K+"Lon",e?e.lon:null);
     var sel=$("ln"+K+"Mk");sel.innerHTML='<option value="">—</option>'+course.marks.map(function(m){return '<option value="'+m.id+'">'+esc(m.name)+'</option>';}).join("");
-    sel.onchange=function(){var m=markById(sel.value);if(m){$("ln"+K+"Lat").value=fmtCoord(m.lat,true);$("ln"+K+"Lon").value=fmtCoord(m.lon,false);}};
+    sel.onchange=function(){var m=markById(sel.value);if(m){cSet("ln"+K+"Lat",m.lat);cSet("ln"+K+"Lon",m.lon);}};
   });
   lnMsg(lnDesc());
 }
 $("lnGps").onclick=function(){lnFill();$("lnDlg").showModal();};
 $("lnClose").onclick=function(){$("lnDlg").close();};
 $("lnSwap").onclick=function(){
-  ["Lat","Lon"].forEach(function(q){var a=$("lnPin"+q).value;$("lnPin"+q).value=$("lnBoat"+q).value;$("lnBoat"+q).value=a;});
+  ["Lat","Lon"].forEach(function(q){var a=cGet("lnPin"+q),b=cGet("lnBoat"+q);cSet("lnPin"+q,b);cSet("lnBoat"+q,a);});
   lnMsg("Ends swapped. Press Set line to use them.");
 };
 $("lnSave").onclick=function(){
   var nl={},bad=[];
   ["pin","boat"].forEach(function(k){
-    var K=k==="pin"?"Pin":"Boat",ta=$("ln"+K+"Lat").value.trim(),to=$("ln"+K+"Lon").value.trim();
-    if(!ta&&!to){if(line&&!lineDemo&&line[k])nl[k]=line[k];return;}
-    var la=parseCoord(ta,true),lo=parseCoord(to,false);
+    var K=k==="pin"?"Pin":"Boat",la=cGet("ln"+K+"Lat"),lo=cGet("ln"+K+"Lon");
+    if(la==null&&lo==null){if(line&&!lineDemo&&line[k])nl[k]=line[k];return;}
     if(!fin(la)||!fin(lo)){bad.push(k==="pin"?"pin":"boat end");return;}
     nl[k]={lat:la,lon:lo};
   });

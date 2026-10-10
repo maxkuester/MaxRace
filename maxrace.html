@@ -366,6 +366,17 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .a-free{position:relative}
 .stzoom{position:absolute;top:4px;right:4px;pointer-events:auto;min-height:36px;padding:4px 10px;border:1px solid var(--line);border-radius:6px;background:#000;color:var(--muted);font-family:var(--num);font-weight:700;font-size:.85rem;letter-spacing:.04em}
 .stzoom[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+/* ---- race recording and report ---- */
+.racebtn.rec{color:#fff;background:#b3261e;font-family:var(--num);font-weight:700;letter-spacing:.03em}
+.recon{color:#e5534b}
+.racelist li span{color:var(--muted);font-size:.8rem}
+dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
+.repwrap{display:flex;flex-direction:column;height:100%}
+.repbar{padding:8px 12px;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--line)}
+.repbar h2{font-family:var(--num);font-size:1.1rem;margin:0}
+.repbar .btn{border:1px solid var(--line);color:var(--ink)}.repbar .btn.primary{background:var(--accent);border-color:var(--accent);color:#000}
+.repbar .spacer{flex:1}
+#repFrame{flex:1;width:100%;border:0;background:#fff}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 </head>
@@ -378,6 +389,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
     <span class="pill hide-sm" id="polarPill" title="Polar in use"><span id="polarText">Demo polar</span></span>
     <div class="seg vsw" role="group" aria-label="View"><button id="vInst" aria-pressed="true">Dash</button><button id="vMap" aria-pressed="false">Map</button><button id="vBoth" aria-pressed="false" title="Dash numbers and map together"><span class="lg">Dash+Map</span><span class="sm">D+M</span></button><button id="vStart" aria-pressed="false">Start</button></div>
     <div class="spacer"></div>
+    <button class="btn racebtn" id="raceBtn" title="Record the race and get the post-race report">Race</button>
     <button class="btn" id="refBtn" title="Lock the current mean TWD as reference for the shift trace">Ref TWD</button>
     <button class="btn" id="themeBtn">Night</button>
     <button class="btn primary" id="setBtn">Settings</button>
@@ -559,6 +571,40 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
       <p style="margin-top:6px">Tick the boats to follow. The selection is used with "Selected only" and is kept for next time.</p>
       <ul class="mklist aislist" id="aisList"></ul>
     </div>
+  </div>
+</dialog>
+
+<dialog id="raceDlg">
+  <div class="dlg">
+    <div class="row" style="justify-content:space-between"><h2>Race</h2><button class="btn" id="rcClose">Close</button></div>
+    <div id="rcIdle">
+      <h3>Recording</h3>
+      <p>MaxRace records the track and the instruments every 2 seconds. When you finish the race it saves the track and builds the performance report: % of polar over time, point of sail summary, leg by leg, verdict.</p>
+      <div class="row"><button class="btn primary" id="rcStart">Start recording now</button>
+        <label><input type="checkbox" id="rcAuto"> Start recording by itself at the start gun</label></div>
+    </div>
+    <div id="rcLive" hidden>
+      <h3 class="recon">● Recording</h3>
+      <p id="rcState"></p>
+      <p>Roundings of the course marks are logged by themselves. Without a course, press "Log mark" at each rounding so the report can split the legs.</p>
+      <div class="row"><button class="btn" id="rcMark">Log mark</button><button class="btn primary" id="rcFinish">Finish race</button><button class="btn" id="rcDiscard">Discard</button></div>
+    </div>
+    <div class="msg" id="rcMsg"></div>
+    <div>
+      <div class="row" style="justify-content:space-between"><h3 style="margin:0">Races</h3>
+        <span class="row"><button class="btn" id="rcImport">Import track CSV</button><button class="btn" id="rcDir" hidden>Open races folder</button></span></div>
+      <p id="rcDiskNote" hidden style="margin-top:6px">Every finished race is also saved on this computer in Documents › MaxRace › Races: track (CSV and GPX), report (HTML) and report (PDF).</p>
+      <input type="file" id="rcFile" accept=".csv,.txt,text/csv" hidden>
+      <ul class="mklist racelist" id="raceList"></ul>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="repDlg" class="repdlg">
+  <div class="repwrap">
+    <div class="row repbar"><h2 id="repTitle">Report</h2><span class="spacer"></span>
+      <button class="btn" id="repPrint">Print / PDF</button><button class="btn" id="repCsv">CSV</button><button class="btn" id="repHtml">HTML</button><button class="btn" id="repDir" hidden>Open folder</button><button class="btn primary" id="repClose">Close</button></div>
+    <iframe id="repFrame" title="Regatta performance report"></iframe>
   </div>
 </dialog>
 
@@ -1235,7 +1281,7 @@ var lastTick=performance.now();
 function loop(){
   var now=Date.now(), p=performance.now(), dt=(p-lastTick)/1000; lastTick=p;
   if(source==="sim")simStep(Math.min(dt,1)); else derive();
-  applyCourse(); smooth(); courseTick(now); pushHist(now); render(now);
+  applyCourse(); smooth(); courseTick(now); pushHist(now); recTick(now); render(now);
   if((view==="map"||view==="both")){renderMapNums();drawMap();}
   if(view==="start"){renderStart(now);drawStart();}
   checkGun(now);
@@ -2065,6 +2111,7 @@ var lastR=NaN,gunEvt=null;
 function checkGun(now){
   var r=cdRem(now);
   if(cd.run&&fin(lastR)&&lastR>0&&r<=0){
+    if(autoRec&&!rec)recStart("gun");
     var si=startInfo();
     if(si){
       var m=Math.round(Math.abs(si.d)*1852),ocs=si.d>0;
@@ -2137,6 +2184,507 @@ $("cdStop").onclick=function(){if(cd.run){cd.rem=cdRem(Date.now());cd.run=false;
 });
 $("bowIn").onchange=function(e){var n=Number(e.target.value);if(fin(n)&&n>=0&&n<60){bowOff=n;save("bow",n);}else e.target.value=bowOff;};
 setView(view);
+
+/* ---------- race recording and post-race report ---------- */
+// While a race is recorded, a point is logged every 2 s (TWS, TWD, TWA, AWS, AWA, STW, SOG, COG, HDG, heel, polar target).
+// Course roundings are logged as leg changes. "Finish race" stores the race, writes CSV, GPX and the report
+// (on the desktop app also to Documents/MaxRace/Races, with a PDF), and opens the report.
+var REC_COLS=["t","lat","lon","tws","twd","twa","aws","awa","bsp","sog","cog","hdg","heel","tgt"];
+var rec=load("rec",null),recSaveT=0,autoRec=load("autorec",true);
+function rn(x,n){return fin(x)?Math.round(x*n)/n:null;}
+function hms(sec){sec=Math.max(0,Math.floor(sec));var h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=sec%60;return h+":"+("0"+m).slice(-2)+":"+("0"+s).slice(-2);}
+function recStart(how){
+  var now=Date.now(),pt=P.tws||[];
+  rec={v:1,id:"r"+now.toString(36),t0:now,how:how,boat:boatName||(activeProf()?activeProf().name:""),polar:P.name||"",ptws:pt.length?[pt[0],pt[pt.length-1]]:null,src:source,dt:2,last:0,idx:course.idx,
+    pts:[],ev:[{t:now,k:"start",txt:how==="gun"?"Start (gun)":"Start"}],
+    marks:seqMarks().map(function(m){return {name:m.name,lat:m.lat,lon:m.lon};})};
+  save("rec",rec);renderRec();
+}
+function recTick(now){
+  if(!rec)return;
+  if(now-rec.last>=rec.dt*1000&&fin(S.lat)&&fin(S.lon)){
+    rec.last=now;
+    var tg=fin(S.twa)&&fin(S.tws)?polarBsp(S.twa,S.tws):NaN;
+    rec.pts.push([now-rec.t0,rn(S.lat,1e6),rn(S.lon,1e6),rn(S.tws,100),rn(S.twd,10),rn(S.twa,10),rn(S.aws,100),rn(S.awa,10),rn(S.bsp,100),rn(S.sog,100),rn(S.cog,10),rn(S.hdg,10),rn(S.heel,10),rn(tg,100)]);
+    // very long races: halve the density instead of running out of storage
+    if(rec.pts.length>=12000){rec.pts=rec.pts.filter(function(p,i){return i%2===0;});rec.dt*=2;}
+  }
+  if(course.idx>rec.idx){
+    for(var i=rec.idx;i<course.idx;i++){var l=course.seq[i],m=l&&markById(l.id);rec.ev.push({t:now,k:"mark",auto:1,txt:m?m.name:"Mark "+(i+1)});}
+    rec.idx=course.idx;save("rec",rec);
+  } else if(course.idx<rec.idx){
+    // stepped back in the course: take back the roundings logged automatically
+    for(var j=course.idx;j<rec.idx;j++)for(var q=rec.ev.length-1;q>=0;q--)if(rec.ev[q].k==="mark"&&rec.ev[q].auto){rec.ev.splice(q,1);break;}
+    rec.idx=course.idx;save("rec",rec);
+  }
+  if(now-recSaveT>15000){recSaveT=now;save("rec",rec);}
+  $("raceBtn").textContent="● "+hms((now-rec.t0)/1000);
+}
+function renderRec(){
+  var b=$("raceBtn");b.classList.toggle("rec",!!rec);if(!rec)b.textContent="Race";
+  $("rcIdle").hidden=!!rec;$("rcLive").hidden=!rec;
+  if(rec){
+    var mk=rec.ev.filter(function(e){return e.k==="mark";}).length;
+    $("rcState").textContent="Recording since "+hhmm(rec.t0)+" · "+rec.pts.length+" points · "+mk+" mark"+(mk===1?"":"s")+" logged";
+  }
+  $("rcAuto").checked=autoRec;
+  renderRaces();
+}
+function hhmm(t,utc){var d=new Date(t);return utc?("0"+d.getUTCHours()).slice(-2)+":"+("0"+d.getUTCMinutes()).slice(-2):("0"+d.getHours()).slice(-2)+":"+("0"+d.getMinutes()).slice(-2);}
+function ymd(t){var d=new Date(t);return d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2)+"-"+("0"+d.getDate()).slice(-2);}
+function rcMsg(t,c){var m=$("rcMsg");m.textContent=t;m.className="msg "+(c||"");}
+function recMark(){
+  if(!rec)return;rec.ev.push({t:Date.now(),k:"mark",txt:"Mark "+(rec.ev.filter(function(e){return e.k==="mark";}).length+1)});
+  save("rec",rec);renderRec();rcMsg("Leg change logged.","ok");
+}
+function recFinish(){
+  if(!rec)return;
+  var now=Date.now();rec.ev.push({t:now,k:"finish",txt:"Finish"});rec.t1=now;
+  var race=rec;rec=null;save("rec",null);delete race.last;delete race.idx;
+  if(race.pts.length<10){renderRec();rcMsg("Too few points recorded ("+race.pts.length+"): nothing to analyse. The race was not saved.","err");return;}
+  var ok=raceStore(race);renderRec();
+  rcMsg(ok?"Race saved.":"Race kept for this session only: the browser storage is full. Download the CSV now.",ok?"ok":"err");
+  if(LOCAL)raceToDisk(race);
+  openReport(race);
+}
+
+/* saved races: index in "races", data in "race:<id>" */
+function raceIndex(){return load("races",[]);}
+function raceName(r){return (r.boat?r.boat+" · ":"")+ymd(r.t0)+" "+hhmm(r.t0);}
+var raceMem={};
+function raceStore(r){
+  var idx=raceIndex().filter(function(x){return x.id!==r.id;});
+  idx.unshift({id:r.id,t0:r.t0,t1:r.t1,boat:r.boat,n:r.pts.length});
+  raceMem[r.id]=r;
+  for(var tries=0;tries<30;tries++){
+    try{localStorage.setItem(SP+"race:"+r.id,JSON.stringify(r));localStorage.setItem(SP+"races",JSON.stringify(idx));return true;}
+    catch(e){
+      // storage full: drop the oldest stored race and try again
+      var old=idx.length>1?idx.pop():null;if(!old)break;
+      try{localStorage.removeItem(SP+"race:"+old.id);}catch(x){}
+    }
+  }
+  try{localStorage.setItem(SP+"races",JSON.stringify(idx));}catch(e){}
+  return false;
+}
+function raceGet(id){return raceMem[id]||load("race:"+id,null);}
+function renderRaces(){
+  var idx=raceIndex();Object.keys(raceMem).forEach(function(id){if(!idx.some(function(x){return x.id===id;})){var r=raceMem[id];idx.unshift({id:id,t0:r.t0,t1:r.t1,boat:r.boat,n:r.pts.length});}});
+  var dl=!/claude/.test(location.host);
+  $("raceList").innerHTML=idx.length?idx.map(function(x){
+    return '<li><b>'+esc(raceName(x))+'</b><span>'+Math.round((x.t1-x.t0)/60000)+' min</span>'+
+      '<button class="btn primary" data-a="rep" data-id="'+x.id+'">Report</button>'+
+      (dl?'<button class="btn" data-a="csv" data-id="'+x.id+'">CSV</button><button class="btn" data-a="gpx" data-id="'+x.id+'">GPX</button>':'')+
+      '<button class="btn" data-a="del" data-id="'+x.id+'" aria-label="Delete">✕</button></li>';
+  }).join(""):'<li class="empty">No races yet. Recording starts by itself at the start gun, or with "Start recording now".</li>';
+}
+
+/* exports */
+function raceRows(r){
+  var evs=r.ev.slice().sort(function(a,b){return a.t-b.t;}),ei=0,leg=1;
+  var rows=r.pts.map(function(p){
+    var t=r.t0+p[0],ev="";
+    while(ei<evs.length&&evs[ei].t<=t){if(evs[ei].k==="mark")leg++;ev+=(ev?"; ":"")+evs[ei].k+(evs[ei].k==="mark"?" "+evs[ei].txt:"");ei++;}
+    return {t:t,p:p,leg:leg,ev:ev};
+  }),last=rows[rows.length-1];
+  // events after the last point (the finish, usually) go on the last row
+  for(;last&&ei<evs.length;ei++)last.ev+=(last.ev?"; ":"")+evs[ei].k+(evs[ei].k==="mark"?" "+evs[ei].txt:"");
+  return rows;
+}
+function raceCsv(r){
+  var out=["time_utc,elapsed_s,lat,lon,tws_kt,twd_deg,twa_deg,aws_kt,awa_deg,stw_kt,sog_kt,cog_deg,hdg_deg,heel_deg,target_kt,pct_polar,leg,event"];
+  raceRows(r).forEach(function(x){
+    var p=x.p,v=function(i){return p[i]==null?"":p[i];},pc=p[8]!=null&&p[13]>0.5?(p[8]/p[13]*100).toFixed(1):"";
+    out.push([new Date(x.t).toISOString(),(p[0]/1000).toFixed(0),v(1),v(2),v(3),v(4),v(5),v(6),v(7),v(8),v(9),v(10),v(11),v(12),v(13),pc,x.leg,'"'+x.ev.replace(/"/g,"'")+'"'].join(","));
+  });
+  return out.join("\n")+"\n";
+}
+function raceGpx(r){
+  var s='<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="MaxRace" xmlns="http://www.topografix.com/GPX/1/1">\n';
+  var rows=raceRows(r);
+  rows.forEach(function(x){if(x.ev&&/mark|finish|start/.test(x.ev)&&x.p[1]!=null)s+='<wpt lat="'+x.p[1]+'" lon="'+x.p[2]+'"><time>'+new Date(x.t).toISOString()+'</time><name>'+esc(x.ev)+'</name></wpt>\n';});
+  s+='<trk><name>'+esc(raceName(r))+'</name><trkseg>\n';
+  rows.forEach(function(x){if(x.p[1]!=null)s+='<trkpt lat="'+x.p[1]+'" lon="'+x.p[2]+'"><time>'+new Date(x.t).toISOString()+'</time></trkpt>\n';});
+  return s+'</trkseg></trk>\n</gpx>\n';
+}
+function fileBase(r){return (ymd(r.t0)+" "+hhmm(r.t0).replace(":","")+(r.boat?" "+r.boat:"")).replace(/[^\w .-]+/g,"").replace(/\s+/g," ").trim();}
+function download(name,text,type){
+  var a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type:type}));a.download=name;document.body.appendChild(a);a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},2000);
+}
+// desktop app: the built-in server writes the files to Documents/MaxRace/Races and makes the PDF
+function raceToDisk(r){
+  var b=fileBase(r),files={};
+  files[b+".csv"]=raceCsv(r);files[b+".gpx"]=raceGpx(r);files[b+" report.html"]=reportHtml(r,raceAnalysis(r));
+  fetch(location.origin+"/race/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({folder:b,files:files,pdf:b+" report.html"})})
+    .then(function(x){return x.json();}).then(function(j){
+      if(j.ok){rcMsg("Race saved in "+j.dir+(j.pdf?" (CSV, GPX, report HTML and PDF).":" (CSV, GPX and report)."),"ok");$("repDir").hidden=false;$("repDir").setAttribute("data-dir",b);$("rcDir").hidden=false;}
+      else rcMsg("Could not write the race files: "+(j.error||"unknown error")+". Use the CSV button.","err");
+    }).catch(function(){rcMsg("Could not reach the MaxRace program to write the files. Use the CSV button.","err");});
+}
+
+/* import a track CSV (MaxRace's own, or any CSV with time, lat, lon and the wind/speed columns) */
+function raceFromCsv(text,fname){
+  var lines=text.split(/\r?\n/).filter(function(l){return l.trim();});if(lines.length<3)throw new Error("The file has no data rows.");
+  var sep=lines[0].indexOf(";")>=0&&lines[0].indexOf(",")<0?";":",";
+  var split=function(l){var out=[],cur="",q=false;for(var i=0;i<l.length;i++){var c=l.charAt(i);if(c==='"')q=!q;else if(c===sep&&!q){out.push(cur);cur="";}else cur+=c;}out.push(cur);return out;};
+  var h=split(lines[0]).map(function(x){return x.trim().toLowerCase().replace(/[^a-z_]/g,"");});
+  var find=function(names){for(var i=0;i<names.length;i++){var k=h.indexOf(names[i]);if(k>=0)return k;}for(i=0;i<names.length;i++)for(var j=0;j<h.length;j++)if(h[j].indexOf(names[i])===0)return j;return -1;};
+  var c={time:find(["time_utc","utc","time","datetime","date_time"]),el:find(["elapsed_s"]),lat:find(["lat","latitude"]),lon:find(["lon","lng","longitude"]),
+    tws:find(["tws_kt","tws"]),twd:find(["twd_deg","twd"]),twa:find(["twa_deg","twa"]),aws:find(["aws_kt","aws"]),awa:find(["awa_deg","awa"]),
+    bsp:find(["stw_kt","bsp_kt","stw","bsp","boatspeed"]),sog:find(["sog_kt","sog"]),cog:find(["cog_deg","cog"]),hdg:find(["hdg_deg","hdg","heading"]),
+    heel:find(["heel_deg","heel"]),tgt:find(["target_kt","target","polar_target"]),ev:find(["event"])};
+  if(c.lat<0||c.lon<0||(c.time<0&&c.el<0))throw new Error("The file needs at least time, lat and lon columns.");
+  var num=function(cells,i){if(i<0)return null;var v=parseFloat(String(cells[i]||"").replace(",","."));return isFinite(v)?v:null;};
+  var rows=[],ev=[],t0=null;
+  lines.slice(1).forEach(function(l){
+    var x=split(l),t;
+    if(c.time>=0){t=Date.parse(String(x[c.time]).trim().replace(" ","T"));if(!isFinite(t)&&c.el>=0)t=null;}
+    if(!isFinite(t)){var e=num(x,c.el);if(e==null)return;t=e*1000;}
+    var la=num(x,c.lat),lo=num(x,c.lon);if(la==null||lo==null)return;
+    if(t0==null)t0=t;
+    var twa=num(x,c.twa),tws=num(x,c.tws),tg=num(x,c.tgt);
+    if(tg==null&&twa!=null&&tws!=null)tg=rn(polarBsp(twa,tws),100);
+    rows.push([t-t0,la,lo,tws,num(x,c.twd),twa,num(x,c.aws),num(x,c.awa),num(x,c.bsp),num(x,c.sog),num(x,c.cog),num(x,c.hdg),num(x,c.heel),tg]);
+    var et=c.ev>=0?String(x[c.ev]||""):"";
+    et.split(";").forEach(function(s){s=s.trim();var m=/^mark\s*(.*)$/i.exec(s);if(m)ev.push({t:t,k:"mark",txt:m[1]||"Mark"});});
+  });
+  if(rows.length<10)throw new Error("Fewer than 10 usable rows in the file.");
+  rows.sort(function(a,b){return a[0]-b[0];});
+  var base=isFinite(Date.parse("2000-01-01"))&&t0>1e11?t0:Date.now()-rows[rows.length-1][0];
+  ev.forEach(function(e){e.t=e.t-t0+base;});
+  var pt=P.tws||[];
+  return {v:1,id:"r"+Date.now().toString(36),t0:base,t1:base+rows[rows.length-1][0],how:"import",boat:(fname||"").replace(/\.[^.]+$/,"").replace(/^\d{4}-\d\d-\d\d \d{4}\s*/,"").slice(0,30),polar:P.name||"",ptws:pt.length?[pt[0],pt[pt.length-1]]:null,
+    src:"import",dt:rows.length>1?Math.max(1,Math.round((rows[rows.length-1][0]-rows[0][0])/1000/(rows.length-1))):2,pts:rows,
+    ev:[{t:base,k:"start",txt:"Start"}].concat(ev).concat([{t:base+rows[rows.length-1][0],k:"finish",txt:"Finish"}]),marks:[]};
+}
+
+/* ---------- analysis ---------- */
+// Same method as our hand-made reports: 10-s averages, TWA >= 38 deg, every figure excludes points more than
+// 1 standard deviation from its group mean. Legs come from the logged roundings; a leg with two distinct
+// points of sail and no rounding between them is split at the mode change (2a, 2b).
+function modeOf(a){return a<75?"U":a<115?"R":"D";}
+var MODE_NAME={U:"Upwind",R:"Reach",D:"Downwind"};
+function trim1sd(arr){
+  if(!arr.length)return {keep:[],out:[]};
+  var m=arr.reduce(function(s,b){return s+b.pct;},0)/arr.length;
+  var sd=Math.sqrt(arr.reduce(function(s,b){return s+(b.pct-m)*(b.pct-m);},0)/arr.length);
+  if(sd<1e-9)return {keep:arr.slice(),out:[]};
+  return {keep:arr.filter(function(b){return Math.abs(b.pct-m)<=sd;}),out:arr.filter(function(b){return Math.abs(b.pct-m)>sd;})};
+}
+function avgOf(arr,k){var s=0,n=0;arr.forEach(function(b){if(fin(b[k])){s+=b[k];n++;}});return n?s/n:NaN;}
+function groupStats(arr){
+  var t=trim1sd(arr),k=t.keep;
+  return {n:k.length,all:arr.length,pct:avgOf(k,"pct"),tws:avgOf(k,"tws"),bsp:avgOf(k,"bsp"),tgt:avgOf(k,"tgt"),twa:avgOf(k,"atwa"),out:t.out};
+}
+function raceAnalysis(r){
+  var N=function(v){return v==null?NaN:v;};
+  var pts=r.pts.map(function(a){return {t:a[0]/1000,lat:N(a[1]),lon:N(a[2]),tws:N(a[3]),twd:N(a[4]),twa:N(a[5]),bsp:N(a[8]),tgt:N(a[13])};});
+  var dur=((r.t1||r.t0+r.pts[r.pts.length-1][0])-r.t0)/1000;
+  var evs=r.ev.map(function(e){return {t:(e.t-r.t0)/1000,k:e.k,txt:e.txt};});
+  var marks=evs.filter(function(e){return e.k==="mark";}).sort(function(a,b){return a.t-b.t;});
+  var legOf=function(t){var n=0;while(n<marks.length&&marks[n].t<=t)n++;return n;};
+  // 10-second bins
+  var bins=[],cur=null;
+  pts.forEach(function(p){
+    var lg=legOf(p.t),key=lg+":"+Math.floor(p.t/10);
+    if(!cur||cur.key!==key){cur={key:key,leg:lg,t0:p.t,n:0,s:{tws:0,bsp:0,tgt:0,atwa:0},c:{tws:0,bsp:0,tgt:0,atwa:0},sx:0,sy:0,side:0,lat:p.lat,lon:p.lon};bins.push(cur);}
+    cur.n++;cur.t1=p.t;
+    [["tws",p.tws],["bsp",p.bsp],["tgt",p.tgt],["atwa",Math.abs(p.twa)]].forEach(function(q){if(fin(q[1])){cur.s[q[0]]+=q[1];cur.c[q[0]]++;}});
+    if(fin(p.twd)){cur.sx+=Math.cos(p.twd*D2R);cur.sy+=Math.sin(p.twd*D2R);}
+    if(fin(p.twa))cur.side+=p.twa<0?-1:1;
+    if(fin(p.lat)){cur.lat=p.lat;cur.lon=p.lon;}
+  });
+  bins.forEach(function(b){
+    ["tws","bsp","tgt","atwa"].forEach(function(k){b[k]=b.c[k]?b.s[k]/b.c[k]:NaN;});
+    b.twd=b.sx||b.sy?wrap360(Math.atan2(b.sy,b.sx)*R2D):NaN;b.t=(b.t0+b.t1)/2;
+    b.pct=fin(b.bsp)&&fin(b.tgt)&&b.tgt>0.5?b.bsp/b.tgt*100:NaN;
+    b.ok=fin(b.atwa)&&b.atwa>=38&&fin(b.bsp)&&b.bsp>0.5&&fin(b.pct);
+    b.mode=fin(b.atwa)?modeOf(b.atwa):null;
+  });
+  var valid=bins.filter(function(b){return b.ok;});
+  var overall=groupStats(valid);overall.out.forEach(function(b){b.ex=true;});
+  var pos={};["U","R","D"].forEach(function(m){pos[m]=groupStats(valid.filter(function(b){return b.mode===m;}));});
+  // manoeuvres from the 2-s log: a change of tack that holds for 15 s
+  var man=[],side=0;
+  for(var i=0;i<pts.length;i++){
+    var p=pts[i];if(!fin(p.twa)||Math.abs(p.twa)<5)continue;
+    var s=p.twa<0?-1:1;if(!side){side=s;continue;}
+    if(s===side)continue;
+    var hold=true;for(var j=i+1;j<pts.length&&pts[j].t-p.t<15;j++)if(fin(pts[j].twa)&&(pts[j].twa<0?-1:1)!==s){hold=false;break;}
+    if(!hold)continue;
+    var sa=0,ca=0;for(j=i;j>=0&&p.t-pts[j].t<=20;j--)if(fin(pts[j].twa)){sa+=Math.abs(pts[j].twa);ca++;}
+    for(j=i+1;j<pts.length&&pts[j].t-p.t<=20;j++)if(fin(pts[j].twa)){sa+=Math.abs(pts[j].twa);ca++;}
+    man.push({t:p.t,type:ca&&sa/ca>=90?"gybe":"tack",lat:p.lat,lon:p.lon});side=s;
+  }
+  // legs, split at a lasting change of point of sail
+  var legs=[],splits=[];
+  for(var L=0;L<=marks.length;L++){
+    var lb=valid.filter(function(b){return b.leg===L;}).sort(function(a,b){return a.t-b.t;});
+    var lt0=L?marks[L-1].t:0,lt1=L<marks.length?marks[L].t:dur;
+    var segs=modeSegments(lb);
+    segs.forEach(function(sg,k){
+      var a=k===0?lt0:sg[0].t0,b=k<segs.length-1?segs[k+1][0].t0:lt1;
+      var st=groupStats(sg);
+      st.name=String(L+1)+(segs.length>1?"abc".charAt(k):"");st.t0=a;st.t1=b;
+      st.type=fin(st.twa)?MODE_NAME[modeOf(st.twa)]:"--";
+      st.dist=trackDist(pts,a,b);
+      st.tacks=man.filter(function(m){return m.t>=a&&m.t<b&&m.type==="tack";}).length;
+      st.gybes=man.filter(function(m){return m.t>=a&&m.t<b&&m.type==="gybe";}).length;
+      legs.push(st);
+    });
+    if(segs.length>1)splits.push({leg:L+1,parts:segs.map(function(sg){var g=groupStats(sg);return {type:fin(g.twa)?MODE_NAME[modeOf(g.twa)]:"--",twa:g.twa,t:sg[0].t0};})});
+    if(!lb.length)legs.push({name:String(L+1),t0:lt0,t1:lt1,n:0,all:0,pct:NaN,tws:NaN,bsp:NaN,tgt:NaN,twa:NaN,type:"--",dist:trackDist(pts,lt0,lt1),
+      tacks:man.filter(function(m){return m.t>=lt0&&m.t<lt1&&m.type==="tack";}).length,gybes:man.filter(function(m){return m.t>=lt0&&m.t<lt1&&m.type==="gybe";}).length});
+  }
+  var twsAll=bins.map(function(b){return b.tws;}).filter(fin);
+  return {pts:pts,bins:bins,valid:valid,overall:overall,pos:pos,legs:legs,splits:splits,marks:marks,man:man,dur:dur,
+    twsMin:twsAll.length?Math.min.apply(null,twsAll):NaN,twsMax:twsAll.length?Math.max.apply(null,twsAll):NaN,twsAvg:twsAll.length?twsAll.reduce(function(s,x){return s+x;},0)/twsAll.length:NaN,
+    dist:trackDist(pts,0,dur+1)};
+}
+function trackDist(pts,a,b){
+  var d=0,prev=null;
+  pts.forEach(function(p){if(p.t<a||p.t>b||!fin(p.lat))return;if(prev)d+=bearDist(prev.lat,prev.lon,p.lat,p.lon).d;prev=p;});
+  return d;
+}
+// runs of one point of sail (3-min majority filter), runs under 6 min merged into a neighbour
+function modeSegments(bs){
+  if(bs.length<2)return bs.length?[bs]:[];
+  var md=bs.map(function(b){return b.mode;}),n=md.length;
+  var sm=md.map(function(m,i){var c={U:0,R:0,D:0};for(var j=Math.max(0,i-9);j<=Math.min(n-1,i+9);j++)c[md[j]]++;return c.U>=c.R&&c.U>=c.D?"U":c.D>=c.R?"D":"R";});
+  var runs=[];sm.forEach(function(m,i){if(runs.length&&runs[runs.length-1].m===m)runs[runs.length-1].i1=i;else runs.push({m:m,i0:i,i1:i});});
+  var len=function(r){return bs[r.i1].t1-bs[r.i0].t0+10;};
+  for(;;){
+    var k=-1,best=Infinity;runs.forEach(function(r,i){var l=len(r);if(l<360&&l<best&&runs.length>1){best=l;k=i;}});
+    if(k<0)break;
+    var r=runs[k],prev=runs[k-1],next=runs[k+1],into=!prev?next:!next?prev:(len(prev)>=len(next)?prev:next);
+    into.i0=Math.min(into.i0,r.i0);into.i1=Math.max(into.i1,r.i1);runs.splice(k,1);
+    for(var q=runs.length-1;q>0;q--)if(runs[q].m===runs[q-1].m){runs[q-1].i1=runs[q].i1;runs.splice(q,1);}
+  }
+  var segs=runs.map(function(r){return bs.slice(r.i0,r.i1+1);});
+  // two phases that end up as the same leg type (say a broad and a tight reach) stay one leg
+  var typ=function(sg){var a=avgOf(trim1sd(sg).keep,"atwa");return fin(a)?modeOf(a):"?";};
+  for(var q2=segs.length-1;q2>0;q2--)if(typ(segs[q2])===typ(segs[q2-1])){segs[q2-1]=segs[q2-1].concat(segs[q2]);segs.splice(q2,1);}
+  return segs;
+}
+
+/* ---------- report (one self-contained HTML page: shown in the app, saved to disk, printed to PDF) ---------- */
+var RC={U:"#2f7de1",D:"#d9434f",R:"#8e5bea"};
+function pctBand(p){return !fin(p)?"#b9bec6":p<85?"#c0392b":p<90?"#e8762c":p<95?"#d4a514":p<100?"#7cb342":p<105?"#2e9e4f":"#14693a";}
+function svgAxes(x0,y0,w,h,yt,ylab,xt,xlab,fx,fy){
+  var s="";
+  yt.forEach(function(v){var y=fy(v);s+='<line x1="'+x0+'" x2="'+(x0+w)+'" y1="'+y+'" y2="'+y+'" class="g"/><text x="'+(x0-6)+'" y="'+(y+4)+'" class="tk" text-anchor="end">'+v+'</text>';});
+  xt.forEach(function(v){var x=fx(v);s+='<line x1="'+x+'" x2="'+x+'" y1="'+(y0+h)+'" y2="'+(y0+h+4)+'" class="ax"/><text x="'+x+'" y="'+(y0+h+17)+'" class="tk" text-anchor="middle">'+v+'</text>';});
+  s+='<line x1="'+x0+'" x2="'+(x0+w)+'" y1="'+(y0+h)+'" y2="'+(y0+h)+'" class="ax"/>';
+  if(xlab)s+='<text x="'+(x0+w/2)+'" y="'+(y0+h+34)+'" class="lb" text-anchor="middle">'+xlab+'</text>';
+  if(ylab)s+='<text transform="translate(14,'+(y0+h/2)+') rotate(-90)" class="lb" text-anchor="middle">'+ylab+'</text>';
+  return s;
+}
+function niceStep(range,target){var raw=range/target,p=Math.pow(10,Math.floor(Math.log10(raw))),m=raw/p;return (m<1.5?1:m<3?2:m<7?5:10)*p;}
+function ticks(a,b,target){var st=niceStep(b-a||1,target||6),out=[];for(var v=Math.ceil(a/st)*st;v<=b+1e-9;v+=st)out.push(Math.round(v*1000)/1000);return out;}
+function chartPerf(A){
+  var W=760,H=300,x0=52,y0=14,w=W-x0-16,h=H-y0-46,durMin=Math.max(1,A.dur/60);
+  var ps=A.valid.map(function(b){return b.pct;}),lo=Math.max(40,Math.floor(Math.min.apply(null,ps.concat([90]))/20)*20),hi=Math.min(160,Math.ceil(Math.max.apply(null,ps.concat([110]))/20)*20);
+  var fx=function(m){return x0+m/durMin*w;},fy=function(p){return y0+h-(Math.max(lo,Math.min(hi,p))-lo)/(hi-lo)*h;};
+  var s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Percent of polar target over the race">';
+  s+=svgAxes(x0,y0,w,h,ticks(lo,hi,6),"% of polar target",ticks(0,durMin,8),"Elapsed time (minutes)",fx,fy);
+  s+='<line x1="'+x0+'" x2="'+(x0+w)+'" y1="'+fy(100)+'" y2="'+fy(100)+'" class="ref"/>';
+  A.marks.forEach(function(m,i){var x=fx(m.t/60);s+='<line x1="'+x+'" x2="'+x+'" y1="'+y0+'" y2="'+(y0+h)+'" class="mk"/><text x="'+(x+3)+'" y="'+(y0+10)+'" class="tk">'+esc(m.txt)+'</text>';});
+  A.valid.forEach(function(b){
+    var c=RC[b.mode],x=fx(b.t/60).toFixed(1),y=fy(b.pct).toFixed(1),tt='<title>'+Math.round(b.t/60)+' min · '+b.pct.toFixed(0)+'% · TWA '+b.atwa.toFixed(0)+'° · TWS '+b.tws.toFixed(1)+' kt</title>';
+    s+=b.ex?'<circle cx="'+x+'" cy="'+y+'" r="3.2" fill="none" stroke="'+c+'" stroke-width="1.2" opacity=".55">'+tt+'</circle>':'<circle cx="'+x+'" cy="'+y+'" r="3.4" fill="'+c+'" stroke="#fff" stroke-width=".8">'+tt+'</circle>';
+  });
+  return s+'</svg>'+legend([["U","Upwind"],["R","Reach"],["D","Downwind"]],true);
+}
+function legend(items,ex){
+  return '<div class="leg">'+items.map(function(it){return '<span><i style="background:'+RC[it[0]]+'"></i>'+it[1]+'</span>';}).join("")+(ex?'<span><i class="ho"></i>Excluded (&gt;1 SD)</span>':'')+'</div>';
+}
+function chartWind(A,key,label,unit){
+  var W=760,H=170,x0=52,y0=10,w=W-x0-16,h=H-y0-42,durMin=Math.max(1,A.dur/60);
+  var bs=A.bins.filter(function(b){return fin(b[key]);});if(bs.length<2)return "";
+  var vals=bs.map(function(b){return b[key];}),lo,hi;
+  if(key==="twd"){ // unwrap around the mean so the trace does not jump at 360/0
+    var mx=0,my=0;vals.forEach(function(v){mx+=Math.cos(v*D2R);my+=Math.sin(v*D2R);});var mean=Math.atan2(my,mx)*R2D;
+    vals=vals.map(function(v){return mean+wrap180(v-mean);});
+  }
+  lo=Math.min.apply(null,vals);hi=Math.max.apply(null,vals);var pad=Math.max(1,(hi-lo)*0.1);lo=Math.floor(lo-pad);hi=Math.ceil(hi+pad);
+  var fx=function(m){return x0+m/durMin*w;},fy=function(v){return y0+h-(v-lo)/(hi-lo)*h;};
+  var yt=ticks(lo,hi,4);
+  var s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+label+' over the race">'+svgAxes(x0,y0,w,h,yt,label+" ("+unit+")",ticks(0,durMin,8),"Elapsed time (minutes)",fx,fy);
+  if(key==="twd")s=s.replace(/(<text x="[\d.]+" y="[\d.]+" class="tk" text-anchor="end">)(-?[\d.]+)(<\/text>)/g,function(m,a,v,c){return a+("00"+Math.round(wrap360(+v))).slice(-3)+"°"+c;});
+  A.marks.forEach(function(m){var x=fx(m.t/60);s+='<line x1="'+x+'" x2="'+x+'" y1="'+y0+'" y2="'+(y0+h)+'" class="mk"/>';});
+  // 1-minute rolling mean for the line, so gusts read as texture and trends as shape
+  var line=bs.map(function(b,i){var a=0,c=0;for(var j=Math.max(0,i-3);j<=Math.min(bs.length-1,i+3);j++){a+=vals[j];c++;}return fx(b.t/60).toFixed(1)+","+fy(a/c).toFixed(1);});
+  return s+'<polyline points="'+line.join(" ")+'" fill="none" stroke="#1f2a37" stroke-width="2" stroke-linejoin="round"/></svg>';
+}
+function chartTrack(A,r){
+  var W=760,H=440,pad=34,ps=A.pts.filter(function(p){return fin(p.lat);});if(ps.length<2)return "";
+  var la0=ps.reduce(function(s,p){return s+p.lat;},0)/ps.length,k=Math.cos(la0*D2R);
+  var xs=ps.map(function(p){return p.lon*k;}),ys=ps.map(function(p){return p.lat;});
+  (r.marks||[]).forEach(function(m){xs.push(m.lon*k);ys.push(m.lat);});
+  var minx=Math.min.apply(null,xs),maxx=Math.max.apply(null,xs),miny=Math.min.apply(null,ys),maxy=Math.max.apply(null,ys);
+  var sc=Math.min((W-2*pad)/Math.max(1e-6,maxx-minx),(H-2*pad)/Math.max(1e-6,maxy-miny));
+  var ox=(W-(maxx-minx)*sc)/2,oy=(H-(maxy-miny)*sc)/2;
+  var X=function(lon){return (ox+(lon*k-minx)*sc).toFixed(1);},Y=function(lat){return (H-oy-(lat-miny)*sc).toFixed(1);};
+  // colour each stretch of track by the % of polar of its 10-s bin
+  var bi=0,bins=A.bins,runs=[],cur=null;
+  ps.forEach(function(p){
+    while(bi<bins.length-1&&bins[bi].t1<p.t)bi++;
+    var b=bins[bi],c=b&&b.ok?pctBand(b.pct):"#b9bec6",pt=X(p.lon)+","+Y(p.lat);
+    if(!cur||cur.c!==c){if(cur)cur.p.push(pt);cur={c:c,p:cur?[cur.p[cur.p.length-2]||pt,pt]:[pt]};runs.push(cur);}else cur.p.push(pt);
+  });
+  var s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Track coloured by percent of polar target">';
+  s+='<rect x="0" y="0" width="'+W+'" height="'+H+'" fill="#f4f7fa" rx="6"/>';
+  runs.forEach(function(r2){s+='<polyline points="'+r2.p.join(" ")+'" fill="none" stroke="'+r2.c+'" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>';});
+  A.man.forEach(function(m){if(fin(m.lat))s+='<circle cx="'+X(m.lon)+'" cy="'+Y(m.lat)+'" r="2.6" fill="#fff" stroke="#1f2a37" stroke-width="1"><title>'+m.type+' at '+Math.round(m.t/60)+' min</title></circle>';});
+  (r.marks||[]).forEach(function(m){s+='<circle cx="'+X(m.lon)+'" cy="'+Y(m.lat)+'" r="6" fill="#f5a623" stroke="#1f2a37" stroke-width="1"/><text x="'+(+X(m.lon)+9)+'" y="'+(+Y(m.lat)+4)+'" class="tk">'+esc(m.name)+'</text>';});
+  var a=ps[0],z=ps[ps.length-1];
+  s+='<circle cx="'+X(a.lon)+'" cy="'+Y(a.lat)+'" r="6" fill="#2e9e4f" stroke="#fff" stroke-width="1.5"/><text x="'+(+X(a.lon)+9)+'" y="'+(+Y(a.lat)-6)+'" class="tk b">START</text>';
+  s+='<rect x="'+(+X(z.lon)-5)+'" y="'+(+Y(z.lat)-5)+'" width="10" height="10" fill="#1f2a37"/><text x="'+(+X(z.lon)+9)+'" y="'+(+Y(z.lat)+14)+'" class="tk b">FINISH</text>';
+  // mean wind arrow (pointing where the wind goes) and a distance scale
+  var tw=A.bins.filter(function(b){return fin(b.twd);}),mx=0,my=0;tw.forEach(function(b){mx+=Math.cos(b.twd*D2R);my+=Math.sin(b.twd*D2R);});
+  if(tw.length){var wd=wrap360(Math.atan2(my,mx)*R2D),cx=W-46,cy=46,dx=Math.sin((wd+180)*D2R),dy=-Math.cos((wd+180)*D2R);
+    s+='<circle cx="'+cx+'" cy="'+cy+'" r="26" fill="#fff" stroke="#c9d0d8"/><line x1="'+(cx-dx*17)+'" y1="'+(cy-dy*17)+'" x2="'+(cx+dx*12)+'" y2="'+(cy+dy*12)+'" stroke="#2f7de1" stroke-width="3"/>'+
+      '<polygon points="'+(cx+dx*20)+','+(cy+dy*20)+' '+(cx+dx*8-dy*7)+','+(cy+dy*8+dx*7)+' '+(cx+dx*8+dy*7)+','+(cy+dy*8-dx*7)+'" fill="#2f7de1"/>'+
+      '<text x="'+cx+'" y="'+(cy+42)+'" class="tk" text-anchor="middle">TWD '+("00"+Math.round(wd)).slice(-3)+'° avg</text>';}
+  var nmPx=sc/60,st=niceStep(120/nmPx,1),L=st*nmPx;
+  s+='<line x1="14" y1="'+(H-16)+'" x2="'+(14+L)+'" y2="'+(H-16)+'" stroke="#1f2a37" stroke-width="2"/><text x="14" y="'+(H-22)+'" class="tk">'+st+' nm</text>';
+  return s+'</svg><div class="leg">'+[["<85%","#c0392b"],["85–90","#e8762c"],["90–95","#d4a514"],["95–100","#7cb342"],["100–105","#2e9e4f"],["≥105%","#14693a"],["not analysed","#b9bec6"]].map(function(x){return '<span><i style="background:'+x[1]+'"></i>'+x[0]+'</span>';}).join("")+'<span><i class="dot"></i>tack / gybe</span></div>';
+}
+function chartLegs(A){
+  var legs=A.legs.filter(function(l){return l.n>0;});if(!legs.length)return "";
+  var W=760,H=300,x0=52,y0=26,w=W-x0-16,h=H-y0-58,mx=Math.max(120,Math.ceil(Math.max.apply(null,legs.map(function(l){return l.pct;}))/20)*20);
+  var fy=function(p){return y0+h-p/mx*h;},bw=Math.min(120,w/legs.length*0.7),gap=w/legs.length;
+  var s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Percent of polar by leg">';
+  s+=svgAxes(x0,y0,w,h,ticks(0,mx,6),"% of polar target",[],"",function(){return 0;},fy);
+  s+='<line x1="'+x0+'" x2="'+(x0+w)+'" y1="'+fy(100)+'" y2="'+fy(100)+'" class="ref"/>';
+  legs.forEach(function(l,i){
+    var cx=x0+gap*(i+0.5),y=fy(l.pct),m=l.type==="Upwind"?"U":l.type==="Reach"?"R":"D",bh=y0+h-y;
+    s+='<path d="M'+(cx-bw/2)+','+(y0+h)+' V'+(y+4)+' q0,-4 4,-4 H'+(cx+bw/2-4)+' q4,0 4,4 V'+(y0+h)+' Z" fill="'+RC[m]+'"><title>Leg '+l.name+': '+l.pct.toFixed(1)+'%</title></path>';
+    s+='<text x="'+cx+'" y="'+(y-18)+'" class="tk b halo" text-anchor="middle">'+l.pct.toFixed(0)+'%</text><text x="'+cx+'" y="'+(y-5)+'" class="tk halo" text-anchor="middle">n='+l.n+'</text>';
+    s+='<text x="'+cx+'" y="'+(y0+h+16)+'" class="tk b" text-anchor="middle">Leg '+l.name+'</text><text x="'+cx+'" y="'+(y0+h+30)+'" class="tk" text-anchor="middle">'+l.type+'</text><text x="'+cx+'" y="'+(y0+h+44)+'" class="tk" text-anchor="middle">~'+Math.round(l.twa)+'° TWA</text>';
+  });
+  return s+'</svg>';
+}
+function f(x,d,u){return fin(x)?x.toFixed(d)+(u||""):"--";}
+function verdictText(A){
+  var o=A.overall,legs=A.legs.filter(function(l){return l.n>=8;}),out=[];
+  if(legs.length>=2){
+    var best=legs.reduce(function(a,b){return b.pct>a.pct?b:a;}),worst=legs.reduce(function(a,b){return b.pct<a.pct?b:a;});
+    var lo=Math.min.apply(null,legs.map(function(l){return l.pct;})),hi=Math.max.apply(null,legs.map(function(l){return l.pct;}));
+    if(hi-lo<=4)out.push("Every leg landed in a tight band ("+lo.toFixed(1)+"–"+hi.toFixed(1)+"%): an even performance across modes, with no clear weak point.");
+    else{
+      var rest=legs.filter(function(l){return l!==worst;}),rl=Math.min.apply(null,rest.map(function(l){return l.pct;})),rh=Math.max.apply(null,rest.map(function(l){return l.pct;}));
+      out.push("The strongest leg was <b>Leg "+best.name+" ("+best.type.toLowerCase()+", "+best.pct.toFixed(1)+"%)</b>. The soft spot is <b>Leg "+worst.name+" ("+worst.type.toLowerCase()+", "+worst.pct.toFixed(1)+"%)</b>"+
+        (rest.length>1?", against "+rl.toFixed(1)+"–"+rh.toFixed(1)+"% on the other legs.":"."));
+      var dw=worst.tws-A.twsAvg;
+      if(dw<-1.5)out.push("Leg "+worst.name+" also had the lightest wind of the day ("+worst.tws.toFixed(1)+" kt against "+A.twsAvg.toFixed(1)+" kt on average): worth checking whether that is a fading-breeze effect or an actual trim issue on that leg.");
+      else if(dw>2)out.push("Leg "+worst.name+" also had the most breeze ("+worst.tws.toFixed(1)+" kt against "+A.twsAvg.toFixed(1)+" kt on average): look at depowering, sail choice and steering in the gusts there.");
+      else out.push("The wind on Leg "+worst.name+" ("+worst.tws.toFixed(1)+" kt) was close to the race average, so the gap is more likely trim, mode or sail choice than conditions.");
+    }
+  } else if(legs.length===1)out.push("Only one leg had enough points to judge on its own ("+legs[0].pct.toFixed(1)+"% of polar).");
+  var pm=["U","R","D"].filter(function(m){return A.pos[m].n>=8;});
+  if(pm.length>=2){
+    var w=pm.reduce(function(a,b){return A.pos[b].pct<A.pos[a].pct?b:a;}),others=pm.filter(function(m){return m!==w;}).map(function(m){return A.pos[m].pct;});
+    if(Math.min.apply(null,others)-A.pos[w].pct>=3)out.push("By point of sail, <b>"+MODE_NAME[w].toLowerCase()+"</b> is the weakest mode ("+A.pos[w].pct.toFixed(1)+"% against "+Math.min.apply(null,others).toFixed(1)+"–"+Math.max.apply(null,others).toFixed(1)+"%).");
+  }
+  var nt=A.man.filter(function(m){return m.type==="tack";}).length,ng=A.man.length-nt;
+  if(A.man.length)out.push(nt+" tack"+(nt===1?"":"s")+" and "+ng+" gybe"+(ng===1?"":"s")+" in "+Math.round(A.dur/60)+" minutes.");
+  if(fin(o.pct)&&o.pct>106)out.push("Averages well above 100% usually mean the polar is conservative or the boat speed reads high: check the speed calibration before trusting the targets.");
+  if(fin(o.pct)&&o.pct<85)out.push("Averages this far below polar usually point at the polar or the boat speed calibration as much as at the sailing: check both before drawing conclusions.");
+  return out.join(" ");
+}
+function overviewLine(p){
+  return !fin(p)?"Not enough valid data to rate the race.":p>=100?"At or above polar on average: a very strong day, or a polar that is on the easy side.":p>=97?"A very strong, consistent day.":p>=94?"A solid, consistent day.":p>=90?"A reasonable day, with clear room to improve.":"A difficult day against the polar.";
+}
+function reportHtml(r,A){
+  var o=A.overall,t1=r.t1||r.t0+A.dur*1000,durMin=Math.round(A.dur/60);
+  var dateTxt=new Date(r.t0).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
+  var sub=esc(r.boat||"MaxRace")+" · "+dateTxt+" · "+hhmm(r.t0,true)+" – "+hhmm(t1,true)+" UTC ("+hhmm(r.t0)+" – "+hhmm(t1)+" local) · "+durMin+" min race";
+  var srcTxt=r.src==="nmea"?"live instruments (NMEA 0183)":r.src==="sk"?"live instruments (Signal K)":r.src==="import"?"an imported track file":r.src==="sim"?"the MaxRace simulator (not real data)":"the instruments";
+  var notes=[];
+  notes.push("Recorded by MaxRace from "+srcTxt+": "+r.pts.length+" points, one every "+r.dt+" s, over "+durMin+" minutes and "+A.dist.toFixed(2)+" nm sailed. Analysed as 10-second averages ("+A.bins.length+" in all).");
+  notes.push("TWS "+f(A.twsMin,1)+"–"+f(A.twsMax,1)+" kt (avg "+f(A.twsAvg,1)+" kt)"+
+    (r.ptws&&fin(A.twsMin)?(A.twsMin<r.ptws[0]-0.5||A.twsMax>r.ptws[1]+0.5?", partly outside the polar's charted range ("+r.ptws[0]+"–"+r.ptws[1]+" kt): targets there are extrapolated.":", fully inside the polar's charted range ("+r.ptws[0]+"–"+r.ptws[1]+" kt)."):".")+
+    " Polar: "+esc(r.polar||"--")+".");
+  var mk=A.marks;
+  notes.push(mk.length?mk.length+" mark rounding"+(mk.length===1?"":"s")+" logged: "+mk.map(function(m){return esc(m.txt)+" at "+Math.round(m.t/60)+" min";}).join(", ")+".":"No mark roundings were logged, so legs come only from changes in point of sail.");
+  A.splits.forEach(function(sp){
+    notes.push("Leg "+sp.leg+" contained <b>"+sp.parts.length+" distinct sailing phases</b> with no mark between them ("+sp.parts.map(function(p){return p.type.toLowerCase()+" ~"+Math.round(p.twa)+"° TWA";}).join(", then ")+"). It was split at the natural mode change"+
+      (sp.parts.length>1?" (t≈"+sp.parts.slice(1).map(function(p){return Math.round(p.t/60);}).join(" and ")+" min)":"")+" rather than left as one misleading blended average.");
+  });
+  notes.push("TWA ≥ 38° is included, boat speed under 0.5 kt is left out, and every figure below excludes points more than 1 standard deviation from its group mean.");
+  if(r.src==="sim")notes.push("<b>Simulated data</b>: this report shows how the analysis works, not how a real boat sailed.");
+  var posRows=[["U","Upwind (TWA&lt;75°)"],["R","Reach (75–115°)"],["D","Downwind (≥115°)"]].map(function(x){var g=A.pos[x[0]];
+    return '<tr><td><i class="sw" style="background:'+RC[x[0]]+'"></i>'+x[1]+'</td><td>'+g.n+'</td><td>'+f(g.tws,1," kt")+'</td><td>'+f(g.bsp,2," kt")+'</td><td>'+f(g.tgt,2," kt")+'</td><td><b>'+f(g.pct,1,"%")+'</b></td></tr>';}).join("");
+  var legRows=A.legs.map(function(l){
+    return '<tr><td>'+l.name+'</td><td>'+l.type+'</td><td>'+hhmm(r.t0+l.t0*1000)+'–'+hhmm(r.t0+l.t1*1000)+'</td><td>'+f(l.dist,2," nm")+'</td><td>'+f(l.twa,1,"°")+'</td><td>'+f(l.tws,1," kt")+'</td><td>'+f(l.bsp,2," kt")+'</td><td>'+f(l.tgt,2," kt")+'</td><td><b>'+f(l.pct,1,"%")+'</b> (n='+l.n+')</td><td>'+l.tacks+' / '+l.gybes+'</td></tr>';}).join("");
+  var css='*{box-sizing:border-box}body{margin:0;background:#fff;color:#1f2a37;font:14px/1.5 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif}'+
+    '.pg{max-width:820px;margin:0 auto;padding:28px 28px 40px}h1{font-size:28px;text-align:center;margin:0 0 2px}.sub{text-align:center;color:#5b6572;margin:0 0 18px;font-size:13.5px}'+
+    'h2{font-size:18px;margin:26px 0 8px;padding-bottom:4px;border-bottom:1px solid #e3e7ec}p{margin:0 0 10px}'+
+    '.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:0;background:#eef7f0;border:1px solid #d6ebdb;border-radius:6px;padding:12px 6px}.kpi{text-align:center}.kpi b{display:block;font-size:30px;font-weight:600;color:#1f2a37;font-variant-numeric:tabular-nums}.kpi span{font-size:12px;color:#5b6572}'+
+    'table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums;margin:6px 0 12px;page-break-inside:avoid}th{background:#1f2a37;color:#fff;font-weight:600;padding:7px 6px;text-align:center}td{padding:6px;border-bottom:1px solid #e3e7ec;text-align:center}td:first-child{text-align:left}tr:nth-child(even) td{background:#f6f8fa}'+
+    '.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}'+
+    'svg{width:100%;height:auto;display:block}svg .g{stroke:#e8ecf0;stroke-width:1}svg .ax{stroke:#9aa3ad;stroke-width:1}svg .ref{stroke:#5b6572;stroke-width:1;stroke-dasharray:5 4}svg .mk{stroke:#9aa3ad;stroke-width:1;stroke-dasharray:2 3}'+
+    'svg .tk{font-size:11px;fill:#5b6572}svg .tk.b{fill:#1f2a37;font-weight:600}svg .halo{paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:round}svg .lb{font-size:12px;fill:#3b4552}'+
+    '.leg{display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:center;font-size:12px;color:#3b4552;margin:4px 0 6px}.leg i{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;vertical-align:-1px}.leg i.ho{border:1.5px solid #5b6572;background:none}.leg i.dot{border:1px solid #1f2a37;background:#fff;width:8px;height:8px}'+
+    '.fig{page-break-inside:avoid;margin:4px 0 8px}.foot{margin-top:28px;font-size:11px;color:#8a929c;text-align:center}'+
+    '@page{size:A4;margin:12mm}@media print{.pg{padding:0}h2{page-break-after:avoid}}';
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Regatta Performance Report · '+esc(raceName(r))+'</title><style>'+css+'</style></head><body><div class="pg">'+
+    '<h1>Regatta Performance Report</h1><p class="sub">'+sub+'</p>'+
+    '<h2>Notes on the data</h2>'+notes.map(function(n){return '<p>'+n+'</p>';}).join("")+
+    '<h2>Race Overview</h2><div class="kpis"><div class="kpi"><b>'+f(o.pct,1,"%")+'</b><span>Avg % of Polar Target<br>(1 SD-trimmed, n='+o.n+')</span></div><div class="kpi"><b>'+f(o.tws,1," kt")+'</b><span>Avg True Wind Speed</span></div><div class="kpi"><b>'+f(o.bsp,2," kt")+'</b><span>Avg Boat Speed (STW)</span></div><div class="kpi"><b>'+f(o.tgt,2," kt")+'</b><span>Avg Polar Target Speed</span></div></div>'+
+    '<p style="margin-top:10px">'+overviewLine(o.pct)+'</p>'+
+    '<h2>Performance Over the Race</h2><div class="fig">'+chartPerf(A)+'</div>'+
+    '<h2>Track</h2><div class="fig">'+chartTrack(A,r)+'</div>'+
+    '<h2>Wind Over the Race</h2><div class="fig">'+chartWind(A,"tws","TWS","kt")+chartWind(A,"twd","TWD","°")+'</div>'+
+    '<h2>Point of Sail Summary (1 SD-trimmed)</h2><table><tr><th>Point of Sail</th><th>Points</th><th>Avg TWS</th><th>Avg STW</th><th>Avg Polar Target</th><th>% of Polar</th></tr>'+posRows+'</table>'+
+    '<h2>Leg-by-Leg Breakdown (1 SD-trimmed)</h2><table><tr><th>Leg</th><th>Type</th><th>Time</th><th>Distance</th><th>Avg TWA</th><th>Avg TWS</th><th>Avg STW</th><th>Avg Target</th><th>% of Polar</th><th>Tacks / gybes</th></tr>'+legRows+'</table>'+
+    '<div class="fig">'+chartLegs(A)+'</div>'+
+    '<h2>Verdict</h2><p>'+verdictText(A)+'</p>'+
+    '<p class="foot">MaxRace · generated '+new Date().toISOString().slice(0,16).replace("T"," ")+' UTC</p></div></body></html>';
+}
+
+/* ---------- dialogs ---------- */
+var repCur=null;
+function openReport(r){
+  if(typeof r==="string")r=raceGet(r);if(!r){rcMsg("This race can no longer be read from storage.","err");return;}
+  repCur=r;
+  try{$("repFrame").srcdoc=reportHtml(r,raceAnalysis(r));}catch(e){rcMsg("Could not build the report: "+e.message,"err");return;}
+  $("repTitle").textContent=raceName(r);
+  if($("raceDlg").open)$("raceDlg").close();
+  $("repDlg").showModal();
+}
+$("raceBtn").onclick=function(){renderRec();rcMsg("");$("raceDlg").showModal();};
+$("rcClose").onclick=function(){$("raceDlg").close();};
+$("rcStart").onclick=function(){recStart("manual");rcMsg("Recording. It goes on in the background until you finish the race.","ok");};
+$("rcAuto").onchange=function(e){autoRec=e.target.checked;save("autorec",autoRec);};
+$("rcMark").onclick=recMark;
+$("rcFinish").onclick=function(){if(confirm("Finish the race and save the track?"))recFinish();};
+$("rcDiscard").onclick=function(){if(rec&&confirm("Throw away this recording? The track is lost."))(rec=null,save("rec",null),renderRec(),rcMsg("Recording discarded."));};
+$("rcImport").onclick=function(){$("rcFile").click();};
+$("rcFile").onchange=function(e){
+  var fl=e.target.files[0];if(!fl)return;var rd=new FileReader();
+  rd.onload=function(){try{var r=raceFromCsv(String(rd.result),fl.name);raceStore(r);renderRec();openReport(r);}catch(x){rcMsg("Cannot use this file: "+x.message,"err");}e.target.value="";};
+  rd.readAsText(fl);
+};
+$("raceList").onclick=function(e){
+  var b=e.target.closest("button");if(!b)return;var id=b.getAttribute("data-id"),a=b.getAttribute("data-a"),r=raceGet(id);
+  if(a==="del"){if(!confirm("Delete this race from MaxRace? Files already saved on the computer are kept."))return;
+    delete raceMem[id];try{localStorage.removeItem(SP+"race:"+id);}catch(x){}save("races",raceIndex().filter(function(x){return x.id!==id;}));renderRaces();return;}
+  if(!r){rcMsg("This race can no longer be read from storage.","err");return;}
+  if(a==="rep")openReport(r);
+  if(a==="csv")download(fileBase(r)+".csv",raceCsv(r),"text/csv");
+  if(a==="gpx")download(fileBase(r)+".gpx",raceGpx(r),"application/gpx+xml");
+};
+$("repClose").onclick=function(){$("repDlg").close();};
+$("repPrint").onclick=function(){try{$("repFrame").contentWindow.focus();$("repFrame").contentWindow.print();}catch(e){}};
+$("repCsv").onclick=function(){if(repCur)download(fileBase(repCur)+".csv",raceCsv(repCur),"text/csv");};
+$("repHtml").onclick=function(){if(repCur)download(fileBase(repCur)+" report.html",reportHtml(repCur,raceAnalysis(repCur)),"text/html");};
+$("repDir").onclick=$("rcDir").onclick=function(){fetch(location.origin+"/race/reveal").catch(function(){});};
+if(/claude/.test(location.host)){$("repCsv").hidden=true;$("repHtml").hidden=true;}
+if(LOCAL){$("rcDir").hidden=false;$("rcDiskNote").hidden=false;$("repDir").hidden=false;}
+renderRec();
 
 
 /* ---------- UI ---------- */

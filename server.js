@@ -92,7 +92,9 @@ function lanAddresses() {
 }
 
 function startServer(opts) {
-  const o = Object.assign({ port: 8765, host: "0.0.0.0", root: __dirname, page: "maxrace.html", log: (m) => console.log("[maxrace] " + m) }, opts || {});
+  const o = Object.assign({ port: 8765, host: "0.0.0.0", root: __dirname, page: "maxrace.html", log: (m) => console.log("[maxrace] " + m),
+    // finished races are written here; the desktop app passes Documents/MaxRace/Races and a PDF maker
+    raceDir: path.join(os.homedir(), "Documents", "MaxRace", "Races"), makePdf: null, reveal: null }, opts || {});
   const source = createSource(o.log);
 
   const json = (res, obj, code) => {
@@ -122,6 +124,12 @@ function startServer(opts) {
     }
     if (p === "/disconnect") { source.stop(); source.status.connected = false; source.status.error = "stopped"; return json(res, { ok: true }); }
     if (p === "/status") return json(res, source.status);
+    if (p === "/race/save" && req.method === "POST") return saveRace(req, res);
+    if (p === "/race/reveal") {
+      fs.mkdirSync(o.raceDir, { recursive: true });
+      if (o.reveal) o.reveal(o.raceDir);
+      return json(res, { ok: true, dir: o.raceDir });
+    }
     if (p === "/info") return json(res, { app: "MaxRace", port: server.address().port, addresses: lanAddresses() });
     if (p === "/stream") {
       res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*", Connection: "keep-alive" });
@@ -133,6 +141,35 @@ function startServer(opts) {
     }
     json(res, { ok: false, error: "not found" }, 404);
   });
+
+  // a finished race (from this window or a tablet on the boat network) (CSV, GPX, report HTML) goes into its own folder under raceDir, plus a PDF of the report
+  function saveRace(req, res) {
+    let body = "", size = 0;
+    req.on("data", (c) => { size += c.length; if (size > 30e6) { req.destroy(); return; } body += c; });
+    req.on("end", async () => {
+      try {
+        const j = JSON.parse(body);
+        const clean = (n) => String(n || "").replace(/[\\/:*?"<>|\x00-\x1f]+/g, "").replace(/^\.+/, "").trim().slice(0, 120);
+        const folder = clean(j.folder) || "race";
+        const dir = path.join(o.raceDir, folder);
+        fs.mkdirSync(dir, { recursive: true });
+        for (const [name, text] of Object.entries(j.files || {})) {
+          const n = clean(name);
+          if (n) fs.writeFileSync(path.join(dir, n), String(text), "utf8");
+        }
+        let pdf = false;
+        const src = clean(j.pdf);
+        if (o.makePdf && src && fs.existsSync(path.join(dir, src))) {
+          try { await o.makePdf(path.join(dir, src), path.join(dir, src.replace(/\.html?$/i, "") + ".pdf")); pdf = true; }
+          catch (e) { o.log("PDF failed: " + e.message); }
+        }
+        o.log(`race saved in ${dir}`);
+        json(res, { ok: true, dir, pdf });
+      } catch (e) {
+        json(res, { ok: false, error: e.message });
+      }
+    });
+  }
 
   function sendFile(res, file) {
     fs.readFile(file, (err, data) => {

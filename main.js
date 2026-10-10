@@ -4,9 +4,22 @@
 "use strict";
 const { app, BrowserWindow, Menu, shell, dialog, globalShortcut } = require("electron");
 const path = require("path");
+const fs = require("fs");
 const { startServer } = require("./server");
 
 let win = null;
+
+// the race report as a PDF, printed by a hidden window from the saved HTML
+async function makePdf(htmlFile, pdfFile) {
+  const w = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  try {
+    await w.loadFile(htmlFile);
+    const data = await w.webContents.printToPDF({ pageSize: "A4", printBackground: true });
+    await fs.promises.writeFile(pdfFile, data);
+  } finally {
+    w.destroy();
+  }
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -16,7 +29,11 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     let srv;
     try {
-      srv = await startServer({ root: __dirname, port: 8765, log: (m) => console.log("[maxrace] " + m) });
+      srv = await startServer({
+        root: __dirname, port: 8765, log: (m) => console.log("[maxrace] " + m),
+        raceDir: path.join(app.getPath("documents"), "MaxRace", "Races"),
+        makePdf, reveal: (dir) => shell.openPath(dir),
+      });
     } catch (e) {
       dialog.showErrorBox("MaxRace", "Could not start the data server: " + e.message);
       app.quit();
@@ -25,6 +42,11 @@ if (!app.requestSingleInstanceLock()) {
 
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       ...(process.platform === "darwin" ? [{ role: "appMenu" }] : []),
+      { label: "File", submenu: [
+        { label: "Open races folder", click: () => { const d = path.join(app.getPath("documents"), "MaxRace", "Races"); fs.mkdirSync(d, { recursive: true }); shell.openPath(d); } },
+        { type: "separator" },
+        process.platform === "darwin" ? { role: "close" } : { role: "quit" },
+      ]},
       { label: "View", submenu: [
         { label: "Full screen", accelerator: process.platform === "darwin" ? "Ctrl+Cmd+F" : "F11", click: () => win && win.setFullScreen(!win.isFullScreen()) },
         { role: "reload" },

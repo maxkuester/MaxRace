@@ -12,6 +12,14 @@ Everything runs inside the program. It opens the NMEA 0183 source (TCP or UDP) i
 - **F11** (Windows) or **Ctrl+Cmd+F** (Mac): full screen. **Esc** leaves full screen.
 - Tablets and phones on the same network can open the same dash: the address is shown in Settings under the NMEA fields, and in Help → "Open on a tablet or phone…". The first time, Windows asks whether to allow MaxRace on the network: allow it on private networks.
 
+## Race recording and report
+
+- **Race** (top bar): recording starts by itself at the start gun, or with "Start recording now". The button turns red and shows the race time.
+- Course roundings are logged by themselves; without a course, press "Log mark" at each rounding.
+- **Finish race** saves the race and opens the performance report: % of polar over time, track coloured by % of polar, wind, point of sail summary, leg by leg (with tacks and gybes), verdict.
+- Each race is written to **Documents › MaxRace › Races** as CSV, GPX, report HTML and report PDF (File → Open races folder).
+- "Import track CSV" builds the same report from a CSV made by MaxRace (or any CSV with time, lat, lon and the wind and speed columns).
+
 ## Get the installer without installing anything (GitHub)
 
 1. Create a private repository on GitHub and upload this whole folder (including the hidden `.github` folder).

@@ -107,6 +107,8 @@ function startServer(opts) {
     const url = new URL(req.url, "http://x");
     const p = url.pathname;
     if (p === "/" || p === "/index.html") return sendFile(res, path.join(o.root, o.page));
+    // home-screen icon for phones and tablets ("Add to Home Screen")
+    if (p === "/icon.png" || p === "/apple-touch-icon.png") return sendFile(res, path.join(o.root, "build", "icon.png"));
     if (p.startsWith("/fonts/")) {
       const f = path.normalize(path.join(o.root, p));
       if (!f.startsWith(path.join(o.root, "fonts"))) return json(res, { ok: false, error: "not found" }, 404);

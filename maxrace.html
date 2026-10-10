@@ -271,7 +271,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .gsub{font-family:var(--num);font-weight:600;font-size:min(6vw,6vh)}
 @media (prefers-reduced-motion: no-preference){.gunmsg:not([hidden]){animation:gunin .25s ease-out}}
 @keyframes gunin{from{opacity:0;transform:scale(1.04)}to{opacity:1;transform:none}}
-.gunbadge{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:2;padding:4px 12px;border-radius:5px;
+.gunbadge{pointer-events:none;position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:2;padding:4px 12px;border-radius:5px;
   font-family:var(--num);font-weight:700;font-size:1.05rem;letter-spacing:.06em;color:#000}
 .gunbadge.good{background:var(--stbd)} .gunbadge.bad{background:var(--port)}
 
@@ -280,7 +280,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .crsbar .btn{min-width:40px;min-height:40px;color:var(--ink);font-family:var(--num);font-weight:700;font-size:1rem}
 .crsname{font-family:var(--num);font-weight:700;font-size:1.05rem;letter-spacing:.04em;padding:0 8px;white-space:nowrap;color:var(--target)}
 .crsname.p{color:var(--target)} .crsname.s{color:var(--target)}
-.mktoast{position:absolute;top:46px;left:50%;transform:translateX(-50%);z-index:3;padding:6px 14px;border-radius:5px;background:var(--target);color:#000;
+.mktoast{pointer-events:none;position:absolute;top:46px;left:50%;transform:translateX(-50%);z-index:3;padding:6px 14px;border-radius:5px;background:var(--target);color:#000;
   font-family:var(--num);font-weight:700;font-size:1.1rem;letter-spacing:.04em;white-space:nowrap}
 .seq,.mklist{list-style:none;margin:0;padding:0;display:grid;gap:4px}
 .seq li,.mklist li{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:5px 6px;border-radius:5px;background:#000;border:1px solid var(--line)}
@@ -385,6 +385,18 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
 .cin .u{color:var(--muted)}
 .dlg .cin .hem{min-width:40px;min-height:36px;font-family:var(--num);font-weight:700;font-size:1rem;border:1px solid var(--accent);color:var(--accent);background:#000;border-radius:4px}
 .cin.bad input{border-color:var(--port)}
+/* ---- marks on the map: drag overlay and menu ---- */
+.mkdrag{position:absolute;z-index:4;pointer-events:none;background:rgba(0,0,0,.88);border:1px solid var(--accent);border-radius:6px;padding:6px 10px;display:grid;gap:1px;max-width:280px}
+.mkdrag b{font-family:var(--num);font-size:1.05rem;letter-spacing:.03em;color:var(--accent)}
+.mkdrag span{font-family:var(--digits);font-size:.95rem;color:var(--ink);white-space:nowrap}
+.mkdrag .mv{color:var(--muted);font-size:.8rem}
+.mkmenu{position:absolute;z-index:5;background:#000;border:1px solid var(--line);border-radius:6px;padding:4px;display:grid;min-width:220px;box-shadow:0 6px 20px rgba(0,0,0,.6)}
+.mkmenu .mh{padding:6px 8px 8px;border-bottom:1px solid var(--line);margin-bottom:4px;display:grid;gap:1px}
+.mkmenu .mh b{font-family:var(--num);font-size:1.05rem;letter-spacing:.03em}
+.mkmenu .mh span{font-family:var(--digits);font-size:.82rem;color:var(--muted);white-space:nowrap}
+.mkmenu button{text-align:left;background:none;border:0;color:var(--ink);padding:9px 10px;border-radius:4px;font-size:.92rem;min-height:40px}
+.mkmenu button:hover,.mkmenu button:focus-visible{background:var(--line)}
+.mkmenu button.dz{color:var(--port)}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 </head>
@@ -488,6 +500,8 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
       <canvas id="map" aria-label="Tactical map with boat, track, next mark and laylines"></canvas>
       <div class="gunbadge" id="gunBadge" hidden></div>
       <div class="mktoast" id="mkToast" hidden></div>
+      <div class="mkdrag" id="mkDrag" hidden></div>
+      <div class="mkmenu" id="mkMenu" hidden role="menu"></div>
       <div class="crsbar">
         <button class="btn" id="mkPrev" aria-label="Previous mark">◀</button>
         <div class="crsname" id="crsName">NO COURSE</div>
@@ -613,6 +627,19 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
     <div class="row repbar"><h2 id="repTitle">Report</h2><span class="spacer"></span>
       <button class="btn" id="repPrint">Print / PDF</button><button class="btn" id="repCsv">CSV</button><button class="btn" id="repHtml">HTML</button><button class="btn" id="repDir" hidden>Open folder</button><button class="btn primary" id="repClose">Close</button></div>
     <iframe id="repFrame" title="Regatta performance report"></iframe>
+  </div>
+</dialog>
+
+<dialog id="mkEdDlg">
+  <div class="dlg">
+    <div class="row" style="justify-content:space-between"><h2>Mark</h2><button class="btn" id="meClose">Close</button></div>
+    <div>
+      <div class="row"><label>Name <input type="text" id="meName" style="max-width:180px"></label></div>
+      <div class="row" style="margin-top:8px"><span class="cin" id="meLat" data-lat="1" data-pair="meLon"></span><span class="cin" id="meLon" data-lat="0" data-pair="meLat"></span></div>
+      <p id="meInfo" style="margin-top:8px"></p>
+      <div class="row"><button class="btn primary" id="meSave">Save</button><button class="btn" id="meDel">Delete mark</button></div>
+      <div class="msg" id="meMsg"></div>
+    </div>
   </div>
 </dialog>
 
@@ -1298,7 +1325,7 @@ seedSim();
 setInterval(loop,250);
 
 /* ---------- map view ---------- */
-var view=load("view","inst"), mapFit=true, mapS=200;
+var view=load("view","inst"), mapFit=true, mapS=200, mapXf=null;
 function markPos(){return fin(S.mlat)&&fin(S.mlon)?{lat:S.mlat,lon:S.mlon}:null;}
 function dtwBtw(){
   var m=markPos(),o={d:NaN,b:S.btw};
@@ -1376,7 +1403,8 @@ function drawMap(){
   var lat0=S.lat,lon0=S.lon,k=Math.cos(lat0*D2R);
   function nm(lat,lon){return [(lon-lon0)*60*k,(lat-lat0)*60];}
   var mk=markPos(),mxy=mk?nm(mk.lat,mk.lon):null,cx=0,cy=0;
-  if(mapFit){
+  if(mDrag&&mapXf){cx=mapXf.cx;cy=mapXf.cy;mapS=mapXf.s/d;}   // hold the view still while a mark is dragged
+  else if(mapFit){
     var pts=[[0,0]];if(mxy)pts.push(mxy);else hist.forEach(function(h){if(fin(h.lat))pts.push(nm(h.lat,h.lon));});
     var x0=Math.min.apply(null,pts.map(function(p){return p[0];})),x1=Math.max.apply(null,pts.map(function(p){return p[0];}));
     var y0=Math.min.apply(null,pts.map(function(p){return p[1];})),y1=Math.max.apply(null,pts.map(function(p){return p[1];}));
@@ -1387,6 +1415,7 @@ function drawMap(){
   }
   var s=mapS*d;
   function sc(p){return [W/2+(p[0]-cx)*s,H/2-(p[1]-cy)*s];}
+  mapXf={W:W,H:H,d:d,cx:cx,cy:cy,s:s,lat0:lat0,lon0:lon0,k:k};
   // grid
   var steps=[0.02,0.05,0.1,0.2,0.25,0.5,1,2,5,10],step=steps[steps.length-1];
   for(var i=0;i<steps.length;i++){if(steps[i]*s>=80*d){step=steps[i];break;}}
@@ -1401,9 +1430,17 @@ function drawMap(){
     ctx.strokeStyle=col("--muted");ctx.lineWidth=1.5*d;ctx.setLineDash([6*d,6*d]);ctx.beginPath();
     for(var ci=Math.max(0,course.idx);ci<cl2.length;ci++){var z=sc(nm(cl2[ci].m.lat,cl2[ci].m.lon));if(ci>course.idx)ctx.lineTo(z[0],z[1]);else ctx.moveTo(z[0],z[1]);}
     ctx.stroke();ctx.setLineDash([]);
-    var drawn={};
+  }
+  {
     course.marks.forEach(function(m){
       var z=sc(nm(m.lat,m.lon)),act=activeMark()===m;
+      if(mDrag&&mDrag.id===m.id){
+        // the mark being dragged: where it was, a line from the boat, a bigger ring
+        var oz=sc(nm(mDrag.o.lat,mDrag.o.lon)),bz=sc([0,0]);
+        ctx.strokeStyle=col("--muted");ctx.lineWidth=1.5*d;ctx.setLineDash([3*d,4*d]);ctx.beginPath();ctx.arc(oz[0],oz[1],6*d,0,2*Math.PI);ctx.stroke();
+        ctx.strokeStyle=col("--accent");ctx.beginPath();ctx.moveTo(bz[0],bz[1]);ctx.lineTo(z[0],z[1]);ctx.stroke();ctx.setLineDash([]);
+        ctx.lineWidth=3*d;ctx.beginPath();ctx.arc(z[0],z[1],14*d,0,2*Math.PI);ctx.stroke();
+      }
       ctx.strokeStyle=act?col("--target"):col("--muted");ctx.lineWidth=2*d;ctx.beginPath();ctx.arc(z[0],z[1],6*d,0,2*Math.PI);ctx.stroke();
       var legs=[];course.seq.forEach(function(l,i){if(l.id===m.id)legs.push(i+1);});
       ctx.font="700 "+(12*d)+"px 'Barlow Condensed', sans-serif";ctx.textAlign="left";ctx.textBaseline="middle";
@@ -1554,6 +1591,161 @@ $("zIn").onclick=function(){mapFit=false;mapS*=1.5;drawMap();$("zFit").setAttrib
 $("zOut").onclick=function(){mapFit=false;mapS/=1.5;drawMap();$("zFit").setAttribute("aria-pressed","false");};
 $("zFit").onclick=function(){mapFit=true;drawMap();$("zFit").setAttribute("aria-pressed","true");};
 $("map").addEventListener("wheel",function(e){e.preventDefault();mapFit=false;mapS*=e.deltaY<0?1.15:1/1.15;$("zFit").setAttribute("aria-pressed","false");drawMap();},{passive:false});
+/* ---------- marks on the map: drag to move, click or right-click for the mark menu ---------- */
+// Mouse: drag a mark to move it; click or right-click it for Edit / Go to / Delete; right-click the water to add a mark.
+// Touch: tap a mark for the menu, press and hold to drag it, press and hold on the water to add a mark.
+// While dragging, the overlay shows the GPS position and the distance and bearing from the boat. Esc cancels.
+var mPress=null,mDrag=null,mUndo=null,mMenuAt=null;
+function mapPt(e){var r=$("map").getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
+function mapToLL(x,y){
+  var f=mapXf;if(!f)return null;
+  var nx=(x*f.d-f.W/2)/f.s+f.cx,ny=(f.H/2-y*f.d)/f.s+f.cy;
+  return {lat:f.lat0+ny/60,lon:f.lon0+nx/(60*f.k)};
+}
+function llToMap(lat,lon){
+  var f=mapXf;if(!f)return null;
+  var nx=(lon-f.lon0)*60*f.k,ny=(lat-f.lat0)*60;
+  return {x:(f.W/2+(nx-f.cx)*f.s)/f.d,y:(f.H/2-(ny-f.cy)*f.s)/f.d};
+}
+function markAt(p,touch){
+  var best=null,bd=touch?30:18;
+  course.marks.forEach(function(m){var q=llToMap(m.lat,m.lon);if(!q)return;var dd=Math.hypot(q.x-p.x,q.y-p.y);if(dd<bd){bd=dd;best=m;}});
+  return best;
+}
+function fromBoat(lat,lon){
+  if(!fin(S.lat))return "";
+  var bd=bearDist(S.lat,S.lon,lat,lon),m=bd.d*1852;
+  return (bd.d<1?Math.round(m)+" m":bd.d.toFixed(2)+" nm")+" · "+deg3(bd.b)+"T from the boat";
+}
+function dragOverlay(m,p){
+  var o=$("mkDrag"),moved=bearDist(mDrag.o.lat,mDrag.o.lon,m.lat,m.lon).d*1852;
+  o.innerHTML='<b>'+esc(m.name)+'</b><span>'+fmtCoord(m.lat,true)+'  '+fmtCoord(m.lon,false)+'</span><span>'+fromBoat(m.lat,m.lon)+'</span><span class="mv">moved '+Math.round(moved)+' m</span>';
+  o.hidden=false;
+  var bw=$("mapBox").clientWidth,bh=$("mapBox").clientHeight,w=o.offsetWidth,h=o.offsetHeight;
+  var x=p.x+18,y=p.y-h-18;if(x+w>bw-6)x=p.x-w-18;if(y<6)y=p.y+22;if(y+h>bh-6)y=bh-h-6;
+  o.style.left=Math.max(6,x)+"px";o.style.top=Math.max(6,y)+"px";
+}
+function startDrag(){
+  var m=markById(mPress.id);if(!m)return;
+  mDrag={id:m.id,o:{lat:m.lat,lon:m.lon}};hideMkMenu();
+  if(mPress.touch&&navigator.vibrate)try{navigator.vibrate(15);}catch(e){}
+}
+function endDrag(cancel){
+  var m=mDrag&&markById(mDrag.id);
+  if(m){
+    if(cancel){m.lat=mDrag.o.lat;m.lon=mDrag.o.lon;}
+    else if(m.lat!==mDrag.o.lat||m.lon!==mDrag.o.lon){
+      mUndo={id:m.id,lat:mDrag.o.lat,lon:mDrag.o.lon};
+      if(activeMark()===m)rnd={armed:false,min:Infinity};
+      saveCourse();renderCourse();
+      toast(m.name+" MOVED · "+fmtCoord(m.lat,true)+" "+fmtCoord(m.lon,false));
+    }
+  }
+  mDrag=null;mPress=null;$("mkDrag").hidden=true;drawMap();
+}
+$("map").addEventListener("pointerdown",function(e){
+  if(e.button!==0)return;
+  var p=mapPt(e),touch=e.pointerType!=="mouse",m=markAt(p,touch);
+  if(!$("mkMenu").hidden){hideMkMenu();if(!m)return;}
+  mPress={id:m?m.id:null,x:p.x,y:p.y,touch:touch,t0:Date.now()};
+  try{$("map").setPointerCapture(e.pointerId);}catch(x){}
+  // press and hold (touch): drag the mark, or the menu for the water
+  if(touch)mPress.timer=setTimeout(function(){
+    if(!mPress||mDrag)return;
+    if(mPress.id){startDrag();var mk=markById(mPress&&mDrag?mDrag.id:null);if(mk)dragOverlay(mk,{x:mPress.x,y:mPress.y});}
+    else{var q={x:mPress.x,y:mPress.y};mPress=null;openMkMenu(null,q);}
+  },450);
+});
+$("map").addEventListener("pointermove",function(e){
+  if(!mPress)return;
+  var p=mapPt(e),dist=Math.hypot(p.x-mPress.x,p.y-mPress.y);
+  if(!mDrag){
+    if(mPress.touch){if(dist>10){clearTimeout(mPress.timer);mPress=null;}return;}
+    if(!mPress.id||dist<4)return;
+    startDrag();
+  }
+  var m=markById(mDrag.id),ll=mapToLL(p.x,p.y);if(!m||!ll)return;
+  m.lat=ll.lat;m.lon=ll.lon;drawMap();dragOverlay(m,p);
+  e.preventDefault();
+});
+$("map").addEventListener("pointerup",function(e){
+  if(!mPress)return;clearTimeout(mPress.timer);
+  if(mDrag){endDrag(false);return;}
+  var pr=mPress;mPress=null;
+  // a click or a tap on a mark: the mark menu
+  if(pr.id&&Date.now()-pr.t0<450)openMkMenu(markById(pr.id),{x:pr.x,y:pr.y});
+});
+$("map").addEventListener("pointercancel",function(){if(mPress)clearTimeout(mPress.timer);if(mDrag)endDrag(true);mPress=null;});
+$("map").addEventListener("contextmenu",function(e){
+  e.preventDefault();if(mDrag)return;
+  var p=mapPt(e);openMkMenu(markAt(p,false),p);
+});
+document.addEventListener("keydown",function(e){
+  if(e.key!=="Escape")return;
+  if(mDrag){e.preventDefault();endDrag(true);toast("MOVE CANCELLED");}
+  else if(!$("mkMenu").hidden)hideMkMenu();
+});
+function hideMkMenu(){$("mkMenu").hidden=true;mMenuAt=null;}
+function openMkMenu(m,p){
+  var ll=mapToLL(p.x,p.y),h="";mMenuAt={id:m?m.id:null,ll:ll};
+  if(m){
+    var inSeq=course.seq.some(function(l){return l.id===m.id;});
+    h='<div class="mh"><b>'+esc(m.name)+'</b><span>'+fmtCoord(m.lat,true)+'  '+fmtCoord(m.lon,false)+'</span><span>'+fromBoat(m.lat,m.lon)+'</span></div>'+
+      '<button data-a="edit">Edit name and position…</button>'+
+      (inSeq?'<button data-a="go">Sail to this mark now</button>':'')+
+      '<button data-a="seq">Add to the sequence</button>'+
+      (mUndo&&mUndo.id===m.id?'<button data-a="undo">Undo the move</button>':'')+
+      '<button data-a="del" class="dz">Delete mark</button>';
+  } else {
+    if(!ll)return;
+    h='<div class="mh"><span>'+fmtCoord(ll.lat,true)+'  '+fmtCoord(ll.lon,false)+'</span><span>'+fromBoat(ll.lat,ll.lon)+'</span></div>'+
+      '<button data-a="addhere">Add a mark here…</button><button data-a="addseq">Add a mark here, in the sequence</button>';
+  }
+  var o=$("mkMenu");o.innerHTML=h;o.hidden=false;
+  var bw=$("mapBox").clientWidth,bh=$("mapBox").clientHeight,w=o.offsetWidth,hh=o.offsetHeight;
+  o.style.left=Math.max(6,Math.min(p.x+8,bw-w-6))+"px";o.style.top=Math.max(6,Math.min(p.y+8,bh-hh-6))+"px";
+}
+$("mkMenu").onclick=function(e){
+  var b=e.target.closest("button");if(!b||!mMenuAt)return;
+  var a=b.getAttribute("data-a"),at=mMenuAt,m=at.id&&markById(at.id);hideMkMenu();
+  if(a==="edit"&&m)openMkEdit(m);
+  else if(a==="go"&&m){var i=-1;course.seq.forEach(function(l,j){if(l.id===m.id&&(i<0||(j>=course.idx&&i<course.idx)))i=j;});if(i>=0)setActive(i,"NEXT MARK  "+m.name);}
+  else if(a==="seq"&&m){course.seq.push({id:m.id,side:"P"});saveCourse();renderCourse();toast(m.name+" ADDED TO THE SEQUENCE ("+course.seq.length+")");}
+  else if(a==="undo"&&m&&mUndo){m.lat=mUndo.lat;m.lon=mUndo.lon;mUndo=null;saveCourse();renderCourse();toast(m.name+" BACK WHERE IT WAS");}
+  else if(a==="del"&&m){if(confirm("Delete "+m.name+" and remove it from the sequence?"))delMark(m.id);}
+  else if((a==="addhere"||a==="addseq")&&at.ll){
+    var id=addMark("",at.ll.lat,at.ll.lon,a==="addseq");saveCourse();renderCourse();
+    var nm2=markById(id);toast(nm2.name+" ADDED");if(a==="addhere")openMkEdit(nm2);
+  }
+  drawMap();
+};
+function delMark(id){
+  var before=course.seq.slice(0,course.idx).filter(function(l){return l.id===id;}).length;
+  course.marks=course.marks.filter(function(x){return x.id!==id;});
+  course.seq=course.seq.filter(function(l){return l.id!==id;});course.idx=Math.max(0,Math.min(course.idx-before,course.seq.length));
+  if(mUndo&&mUndo.id===id)mUndo=null;
+  saveCourse();renderCourse();
+}
+/* edit one mark: name and position, with distance and bearing from the boat */
+var mkEdId=null;
+function openMkEdit(m){
+  mkEdId=m.id;$("meName").value=m.name;cSet("meLat",m.lat);cSet("meLon",m.lon);
+  $("meInfo").textContent=fromBoat(m.lat,m.lon);$("meMsg").textContent="";$("mkEdDlg").showModal();
+}
+function meRead(){var la=cGet("meLat"),lo=cGet("meLon");$("meInfo").textContent=fin(la)&&fin(lo)?fromBoat(la,lo):"";return {la:la,lo:lo};}
+$("mkEdDlg").addEventListener("input",meRead);
+$("meSave").onclick=function(){
+  var m=markById(mkEdId);if(!m){$("mkEdDlg").close();return;}
+  var v=meRead();
+  if(!fin(v.la)||!fin(v.lo)){$("meMsg").textContent="Position not recognised: degrees up to 90 (lat) and 180 (lon), minutes under 60.";$("meMsg").className="msg err";return;}
+  if(v.la!==m.lat||v.lo!==m.lon)mUndo={id:m.id,lat:m.lat,lon:m.lon};
+  m.lat=v.la;m.lon=v.lo;m.name=($("meName").value.trim()||m.name).toUpperCase().slice(0,20);
+  if(activeMark()===m)rnd={armed:false,min:Infinity};
+  saveCourse();renderCourse();$("mkEdDlg").close();toast(m.name+" SAVED");drawMap();
+};
+$("meDel").onclick=function(){var m=markById(mkEdId);if(m&&confirm("Delete "+m.name+" and remove it from the sequence?")){delMark(m.id);$("mkEdDlg").close();drawMap();}};
+$("meClose").onclick=function(){$("mkEdDlg").close();};
+
 
 
 /* ---------- NMEA 0183 over TCP/UDP, via the local bridge ---------- */

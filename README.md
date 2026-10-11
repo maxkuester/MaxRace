@@ -20,6 +20,13 @@ Everything runs inside the program. It opens the NMEA 0183 source (TCP or UDP) i
 - Each race is written to **Documents › MaxRace › Races** as CSV, GPX, report HTML and report PDF (File → Open races folder).
 - "Import track CSV" builds the same report from a CSV made by MaxRace (or any CSV with time, lat, lon and the wind and speed columns).
 
+## iPhone and iPad
+
+The `ios` folder is the same dashboard as a native app. The app connects to the NMEA gateway over TCP/UDP itself, can run on the phone's own GPS with the wind typed in by hand, and saves races to the Files app (MaxRace › Races) with the PDF report.
+
+- Every push builds `MaxRace-iOS-unsigned.ipa` in the "latest" release. It installs with a free Apple ID through Sideloadly or AltStore and runs for 7 days before it has to be installed again.
+- With an Apple Developer account, add the secrets listed at the top of `.github/workflows/ios.yml`. Every push then also goes to TestFlight.
+
 ## Get the installer without installing anything (GitHub)
 
 1. Create a private repository on GitHub and upload this whole folder (including the hidden `.github` folder).

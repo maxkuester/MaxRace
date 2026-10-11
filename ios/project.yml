@@ -1,0 +1,31 @@
+# MaxRace for iPhone and iPad. The Xcode project is generated from this file (XcodeGen) on the build machine.
+# Environment: MAXRACE_BUNDLE_ID (app id), MAXRACE_TEAM_ID (Apple developer team, only for signed builds).
+name: MaxRace
+options:
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+targets:
+  MaxRace:
+    type: application
+    platform: iOS
+    sources:
+      - path: MaxRace
+      - path: web
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ${MAXRACE_BUNDLE_ID}
+        PRODUCT_NAME: MaxRace
+        INFOPLIST_FILE: MaxRace/Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ${MAXRACE_TEAM_ID}
+        ENABLE_BITCODE: NO

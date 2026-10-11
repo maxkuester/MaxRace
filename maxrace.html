@@ -577,6 +577,7 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
     </div>
     <button class="wgo" id="wGo">Connect</button>
     <div class="msg" id="wMsg"></div>
+    <button class="wsim" id="wGps" hidden>No instruments: use only the phone's GPS</button>
     <button class="wsim" id="wSim">No instruments now: try the simulator</button>
   </div>
 </dialog>
@@ -776,6 +777,16 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
         <button id="srcSim" aria-pressed="true">Simulator</button>
         <button id="srcNM" aria-pressed="false">NMEA TCP/UDP</button>
         <button id="srcSK" aria-pressed="false">Signal K</button>
+        <button id="srcGPS" aria-pressed="false">Phone GPS</button>
+      </div>
+      <div id="gpsBox" hidden style="margin-top:10px">
+        <p>Position, SOG and COG from this phone's own GPS, no instruments needed. SOG stands in for boat speed. Without a wind instrument, type the wind here to get TWA, targets, laylines and the start line numbers. Change it whenever the wind shifts.</p>
+        <div class="row">
+          <label>TWD <input type="text" id="mwTwd" inputmode="numeric" placeholder="225" style="max-width:70px"> °</label>
+          <label>TWS <input type="text" id="mwTws" inputmode="decimal" placeholder="12" style="max-width:70px"> kn</label>
+        </div>
+        <div class="row" style="margin-top:6px"><label><input type="checkbox" id="mwHdg"> Heading from the phone compass (only with the phone fixed along the boat's centreline; otherwise COG is used)</label></div>
+        <div class="msg" id="gpsMsg"></div>
       </div>
       <div id="nmBox" style="margin-top:10px">
         <p id="nmHelp">NMEA 0183 from your gateway or instrument system, by IP and port. A browser cannot open TCP or UDP sockets itself, so this goes through the small MaxRace bridge running on a laptop or Raspberry Pi on board (maxrace_bridge.py). Open the dashboard from the bridge address and the bridge field fills itself.</p>
@@ -854,7 +865,10 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
 "use strict";
 // LOCAL: the page is served by the MaxRace app (or the bridge) on this machine, so it can reach the NMEA source directly
 var LOCAL=/^https?:$/.test(location.protocol)&&!/claude/.test(location.host);
-if(LOCAL){var fl=document.createElement("link");fl.rel="stylesheet";fl.href="fonts/fonts.css";document.head.insertBefore(fl,document.head.firstChild);}
+// NATIVE: inside the MaxRace iPhone/iPad app; the app opens TCP/UDP, reads the phone GPS and saves files
+var NATIVE=!!(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.mr);
+function nat(o){try{window.webkit.messageHandlers.mr.postMessage(o);}catch(e){}}
+if(LOCAL||NATIVE){var fl=document.createElement("link");fl.rel="stylesheet";fl.href="fonts/fonts.css";document.head.insertBefore(fl,document.head.firstChild);}
 var KN=1.943844, D2R=Math.PI/180, R2D=180/Math.PI;
 function wrap360(a){return ((a%360)+360)%360;}
 function wrap180(a){a=wrap360(a);return a>180?a-360:a;}
@@ -1757,12 +1771,18 @@ $("meClose").onclick=function(){$("mkEdDlg").close();};
 /* ---------- NMEA 0183 over TCP/UDP, via the local bridge ---------- */
 var es=null;
 function nmMsg(t,c){var m=$("nmMsg");m.textContent=t;m.className="msg "+(c||"");}
-function disconnectNM(){if(es){try{es.close();}catch(e){}es=null;}}
+function disconnectNM(){if(es){try{es.close();}catch(e){}es=null;}if(NATIVE)nat({cmd:"disconnect"});natLive=false;}
+var natLive=false,natProto="tcp";
 function connectNM(){
   disconnectNM();raw={};S={};hist=[];ais={};
   var proto=$("nmProto").value,host=$("nmHost").value.trim(),port=Number($("nmPort").value),br=LOCAL?location.origin:$("nmBridge").value.trim().replace(/\/$/,"");
   if(proto==="tcp"&&!/^[\w.\-]+$/.test(host)){nmMsg("Enter the IP address of the NMEA source.","err");return;}
   if(!(port>0&&port<65536)){nmMsg("Enter a port between 1 and 65535.","err");return;}
+  if(NATIVE){
+    save("nmea",{proto:proto,host:host,port:port});natLive=false;natProto=proto;
+    setPill("err","Connecting");nmMsg("Opening "+proto.toUpperCase()+" "+(host||"*")+":"+port+" …");
+    nat({cmd:"connect",proto:proto,host:host,port:port});return;
+  }
   if(!/^https?:\/\//.test(br)){nmMsg("Bridge address must start with http://","err");return;}
   save("nmea",{proto:proto,host:host,port:port,bridge:br});
   setPill("err","Connecting");nmMsg("Asking the bridge to open "+proto.toUpperCase()+" "+(host||"*")+":"+port+" …");
@@ -1773,6 +1793,52 @@ function connectNM(){
     es.addEventListener("status",function(ev){var st=JSON.parse(ev.data);if(!st.connected){setPill("err","Source not reachable");nmMsg((LOCAL?"Cannot reach ":"Bridge cannot reach ")+(host||"*")+":"+port+": "+(st.error||"retrying")+". Retrying every 3 s.","err");}});
     es.onerror=function(){setPill("err",LOCAL?"Connection lost":"Bridge lost");nmMsg(LOCAL?"Lost the internal data connection. Restart MaxRace if this persists.":"Lost the bridge at "+br+". Is maxrace_bridge.py still running?","err");};
   }).catch(function(){setPill("err","No bridge");nmMsg("No bridge at "+br+". Start maxrace_bridge.py on the laptop or Pi and check the address.","err");});
+}
+/* messages from the iPhone/iPad app */
+window.MRN={
+  lines:function(a){
+    if(source!=="nmea")return;
+    for(var i=0;i<a.length;i++)parseNMEA(a[i]);
+    if(!natLive&&a.length){natLive=true;save("src","nmea");setPill("live","Live, NMEA "+natProto.toUpperCase());nmMsg("Receiving data.","ok");}
+  },
+  status:function(st){
+    if(source!=="nmea")return;
+    if(st.connected){if(!natLive)nmMsg("Connected. Waiting for data…");}
+    else{natLive=false;setPill("err","Source not reachable");nmMsg("Cannot reach the source: "+(st.error||"retrying")+". Retrying every 3 s. Is the phone on the boat Wi-Fi?","err");}
+  },
+  gps:function(g){gpsFix(g);},
+  gpsError:function(t){gpsMsg(t,"err");if(source==="gps")setPill("err","No GPS");},
+  saved:function(j){raceSaved(j);}
+};
+
+/* phone or tablet GPS as the only data source: position, SOG, COG; wind typed in by hand */
+var gpsWatch=null,gpsLive=false,manWind=load("manwind",{twd:null,tws:null,hdg:false});
+function gpsMsg(t,c){var m=$("gpsMsg");if(m){m.textContent=t;m.className="msg "+(c||"");}}
+function gpsFix(g){
+  if(source!=="gps"||!fin(g.lat)||!fin(g.lon))return;
+  raw.lat=g.lat;raw.lon=g.lon;
+  if(fin(g.sog)&&g.sog>=0)raw.sog=g.sog;
+  // course over ground means little when nearly stopped: keep the last one
+  if(fin(g.cog)&&g.cog>=0&&(!fin(raw.sog)||raw.sog>=0.6))raw.cog=g.cog;
+  var h=manWind.hdg&&fin(g.hdg)&&g.hdg>=0?g.hdg:raw.cog;if(fin(h))raw.hdg=h;
+  if(fin(raw.sog))raw.bsp=raw.sog;               // no log: SOG stands in for boat speed
+  if(fin(manWind.twd)&&fin(manWind.tws)&&fin(raw.hdg)){raw.twd=manWind.twd;raw.tws=manWind.tws;raw.twa=wrap180(manWind.twd-raw.hdg);raw._d=1;raw._t=1;}
+  else{delete raw.twd;delete raw.tws;delete raw.twa;delete raw.awa;delete raw.aws;}
+  if(!gpsLive){gpsLive=true;save("src","gps");setPill("live","Live, phone GPS");gpsMsg("GPS fix"+(fin(g.acc)?" ± "+Math.round(g.acc)+" m":"")+".","ok");}
+}
+function startGps(){
+  gpsLive=false;setPill("err","Waiting for GPS");gpsMsg("Waiting for the GPS fix… (allow location access if asked)");
+  if(NATIVE){nat({cmd:"gps",on:true});return;}
+  if(!navigator.geolocation){gpsMsg("This device does not give its GPS to the page. Use the MaxRace app.","err");return;}
+  gpsWatch=navigator.geolocation.watchPosition(function(p){var c=p.coords;
+    gpsFix({lat:c.latitude,lon:c.longitude,acc:c.accuracy,sog:c.speed!=null&&c.speed>=0?c.speed*1.943844:NaN,cog:c.heading!=null&&c.heading>=0?c.heading:NaN});
+  },function(e){gpsMsg("GPS not available: "+e.message+(location.protocol==="http:"?" (the browser only gives GPS to secure pages: use the MaxRace app)":""),"err");setPill("err","No GPS");},
+  {enableHighAccuracy:true,maximumAge:0,timeout:30000});
+}
+function stopGps(){if(NATIVE)nat({cmd:"gps",on:false});if(gpsWatch!=null){try{navigator.geolocation.clearWatch(gpsWatch);}catch(e){}gpsWatch=null;}gpsLive=false;}
+function readManWind(){
+  var d=parseFloat(($("mwTwd").value||"").replace(",",".")),w=parseFloat(($("mwTws").value||"").replace(",","."));
+  manWind.twd=isFinite(d)&&d>=0&&d<=360?wrap360(d):null;manWind.tws=isFinite(w)&&w>=0&&w<80?w:null;manWind.hdg=$("mwHdg").checked;save("manwind",manWind);
 }
 function nmNum(x){var v=parseFloat(x);return isFinite(v)?v:NaN;}
 function nmLat(v,h){if(!v)return NaN;var d=Math.floor(v/100),m=v-d*100;return (d+m/60)*(h==="S"?-1:1);}
@@ -2505,7 +2571,7 @@ function recFinish(){
   if(race.pts.length<10){renderRec();rcMsg("Too few points recorded ("+race.pts.length+"): nothing to analyse. The race was not saved.","err");return;}
   var ok=raceStore(race);renderRec();
   rcMsg(ok?"Race saved.":"Race kept for this session only: the browser storage is full. Download the CSV now.",ok?"ok":"err");
-  if(LOCAL)raceToDisk(race);
+  if(LOCAL||NATIVE)raceToDisk(race);
   openReport(race);
 }
 
@@ -2570,6 +2636,7 @@ function raceGpx(r){
 }
 function fileBase(r){return (ymd(r.t0)+" "+hhmm(r.t0).replace(":","")+(r.boat?" "+r.boat:"")).replace(/[^\w .-]+/g,"").replace(/\s+/g," ").trim();}
 function download(name,text,type){
+  if(NATIVE){nat({cmd:"share",name:name,text:text});return;}   // the app opens the share sheet (save to Files, AirDrop, mail…)
   var a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type:type}));a.download=name;document.body.appendChild(a);a.click();
   setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},2000);
 }
@@ -2577,11 +2644,14 @@ function download(name,text,type){
 function raceToDisk(r){
   var b=fileBase(r),files={};
   files[b+".csv"]=raceCsv(r);files[b+".gpx"]=raceGpx(r);files[b+" report.html"]=reportHtml(r,raceAnalysis(r));
+  if(NATIVE){nat({cmd:"save",folder:b,files:files,pdf:b+" report.html"});return;}
   fetch(location.origin+"/race/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({folder:b,files:files,pdf:b+" report.html"})})
-    .then(function(x){return x.json();}).then(function(j){
-      if(j.ok){rcMsg("Race saved in "+j.dir+(j.pdf?" (CSV, GPX, report HTML and PDF).":" (CSV, GPX and report)."),"ok");$("repDir").hidden=false;$("repDir").setAttribute("data-dir",b);$("rcDir").hidden=false;}
-      else rcMsg("Could not write the race files: "+(j.error||"unknown error")+". Use the CSV button.","err");
-    }).catch(function(){rcMsg("Could not reach the MaxRace program to write the files. Use the CSV button.","err");});
+    .then(function(x){return x.json();}).then(raceSaved)
+    .catch(function(){rcMsg("Could not reach the MaxRace program to write the files. Use the CSV button.","err");});
+}
+function raceSaved(j){
+  if(j.ok){rcMsg("Race saved in "+j.dir+(j.pdf?" (CSV, GPX, report HTML and PDF).":" (CSV, GPX and report)."),"ok");if(LOCAL){$("repDir").hidden=false;$("rcDir").hidden=false;}}
+  else rcMsg("Could not write the race files: "+(j.error||"unknown error")+". Use the CSV button.","err");
 }
 
 /* import a track CSV (MaxRace's own, or any CSV with time, lat, lon and the wind/speed columns) */
@@ -2939,12 +3009,13 @@ $("raceList").onclick=function(e){
   if(a==="gpx")download(fileBase(r)+".gpx",raceGpx(r),"application/gpx+xml");
 };
 $("repClose").onclick=function(){$("repDlg").close();};
-$("repPrint").onclick=function(){try{$("repFrame").contentWindow.focus();$("repFrame").contentWindow.print();}catch(e){}};
+$("repPrint").onclick=function(){if(NATIVE){if(repCur)nat({cmd:"pdfShare",name:fileBase(repCur)+" report.pdf",html:reportHtml(repCur,raceAnalysis(repCur))});return;}try{$("repFrame").contentWindow.focus();$("repFrame").contentWindow.print();}catch(e){}};
 $("repCsv").onclick=function(){if(repCur)download(fileBase(repCur)+".csv",raceCsv(repCur),"text/csv");};
 $("repHtml").onclick=function(){if(repCur)download(fileBase(repCur)+" report.html",reportHtml(repCur,raceAnalysis(repCur)),"text/html");};
 $("repDir").onclick=$("rcDir").onclick=function(){fetch(location.origin+"/race/reveal").catch(function(){});};
 if(/claude/.test(location.host)){$("repCsv").hidden=true;$("repHtml").hidden=true;}
 if(LOCAL){$("rcDir").hidden=false;$("rcDiskNote").hidden=false;$("repDir").hidden=false;}
+if(NATIVE){$("rcDiskNote").hidden=false;$("rcDiskNote").textContent="Every finished race is also saved on this device: Files app › On My iPhone (or iPad) › MaxRace › Races, with the track (CSV and GPX) and the report (HTML and PDF).";$("repPrint").textContent="PDF / Share";$("repCsv").textContent="Share CSV";$("repHtml").hidden=true;}
 renderRec();
 
 
@@ -2994,14 +3065,19 @@ applyDigits();
 $("damp").oninput=function(e){damp=Number(e.target.value);save("damp",damp);};
 
 function setSource(s){
-  source=s;$("srcSim").setAttribute("aria-pressed",s==="sim");$("srcSK").setAttribute("aria-pressed",s==="sk");$("srcNM").setAttribute("aria-pressed",s==="nmea");
-  ais={};if(s!=="nmea")disconnectNM();
+  source=s;$("srcSim").setAttribute("aria-pressed",s==="sim");$("srcSK").setAttribute("aria-pressed",s==="sk");$("srcNM").setAttribute("aria-pressed",s==="nmea");$("srcGPS").setAttribute("aria-pressed",s==="gps");
+  $("gpsBox").hidden=s!=="gps";
+  ais={};if(s!=="nmea")disconnectNM();if(s!=="gps")stopGps();
+  if(s==="gps"){disconnectSK();raw={};S={};hist=[];startGps();$("demoBtn").hidden=true;return;}
   if(s==="sim"){disconnectSK();raw={};S={};seedSim();setPill("sim","Simulator");skMsg("");}
   else {raw={};S={};hist=[];setPill("err","Not connected");skMsg("Enter the address and choose Connect.");}
   $("demoBtn").hidden=s!=="sim";
 }
 $("srcSim").onclick=function(){setSource("sim");save("src","sim");};
 $("srcSK").onclick=function(){setSource("sk");};
+$("srcGPS").onclick=function(){setSource("gps");};
+$("mwTwd").oninput=$("mwTws").oninput=$("mwHdg").onchange=readManWind;
+$("mwTwd").value=manWind.twd!=null?manWind.twd:"";$("mwTws").value=manWind.tws!=null?manWind.tws:"";$("mwHdg").checked=!!manWind.hdg;
 $("srcNM").onclick=function(){setSource("nmea");nmMsg("Enter IP and port of the NMEA source and choose Connect.");};
 $("nmConnect").onclick=function(){setSource("nmea");connectNM();};
 $("skConnect").onclick=function(){setSource("sk");connectSK($("skUrl").value.trim());};
@@ -3351,10 +3427,10 @@ $("profImport").onchange=function(e){
 };
 
 // inside the app: no bridge field, show the address for tablets, and reconnect to the last source on start
-if(LOCAL){
+if(LOCAL||NATIVE){
   $("nmBridgeRow").hidden=true;
-  $("nmHelp").textContent="NMEA 0183 from your gateway or instrument system: enter its IP address and port. For UDP broadcast the IP is optional.";
-  fetch("/info").then(function(r){return r.json();}).then(function(j){
+  $("nmHelp").textContent="NMEA 0183 from your gateway or instrument system: enter its IP address and port. For UDP broadcast the IP is optional."+(NATIVE?" The phone must be on the boat's Wi-Fi. TCP is the safest choice on iPhone.":"");
+  if(LOCAL)fetch("/info").then(function(r){return r.json();}).then(function(j){
     if(!j.addresses||!j.addresses.length)return;
     $("nmShare").textContent="Tablets and phones on the same network can open: "+j.addresses.map(function(a){return "http://"+a+":"+j.port;}).join("  ·  ");
     $("nmShare").hidden=false;
@@ -3365,6 +3441,7 @@ if(LOCAL){
     $("welcome").showModal();
     $("wProto").onchange=function(){$("wHost").placeholder=$("wProto").value==="udp"?"optional":"192.168.1.50";};
     $("wSim").onclick=function(){save("src","sim");$("welcome").close();};
+    if(NATIVE){$("wGps").hidden=false;$("wGps").onclick=function(){$("welcome").close();setSource("gps");};}
     $("wGo").onclick=function(){
       var pr=$("wProto").value,h=$("wHost").value.trim(),pt=$("wPort").value.trim(),m=$("wMsg");
       if(pr==="tcp"&&!h){m.className="msg err";m.textContent="Enter the IP address.";return;}
@@ -3374,10 +3451,11 @@ if(LOCAL){
       var iv=setInterval(function(){
         if(/^Live/.test($("srcText").textContent)){clearInterval(iv);$("welcome").close();return;}
         var err=$("nmMsg").className.indexOf("err")>=0;
-        if(err||Date.now()-t0>12000){clearInterval(iv);m.className="msg err";m.textContent=(err?$("nmMsg").textContent:"No data yet from "+(h||"*")+":"+pt+".")+" Check IP and port, and that this computer is on the boat network.";}
+        if(err||Date.now()-t0>12000){clearInterval(iv);m.className="msg err";m.textContent=(err?$("nmMsg").textContent:"No data yet from "+(h||"*")+":"+pt+".")+" Check IP and port, and that this "+(NATIVE?"phone":"computer")+" is on the boat network.";}
       },400);
     };
   }
+  if(src0==="gps")setSource("gps");
   if(src0==="nmea"&&nm0.port){$("nmProto").value=nm0.proto||"tcp";$("nmHost").value=nm0.host||"";$("nmPort").value=nm0.port;setSource("nmea");connectNM();}
 }
 if(load("src","sim")==="sk"&&load("skurl","")){setSource("sk");connectSK(load("skurl",""));}

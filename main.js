@@ -32,6 +32,7 @@ if (!app.requestSingleInstanceLock()) {
       srv = await startServer({
         root: __dirname, port: 8765, log: (m) => console.log("[maxrace] " + m),
         raceDir: path.join(app.getPath("documents"), "MaxRace", "Races"),
+        sharedFile: path.join(app.getPath("userData"), "shared.json"),
         makePdf, reveal: (dir) => shell.openPath(dir),
       });
     } catch (e) {

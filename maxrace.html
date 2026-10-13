@@ -874,8 +874,9 @@ function wrap360(a){return ((a%360)+360)%360;}
 function wrap180(a){a=wrap360(a);return a>180?a-360:a;}
 function $(id){return document.getElementById(id);}
 var SP="maxrace:",OLD=["racedash:","c7dash:"];
+var sync={ver:0,timer:null,applying:false,del:{},t:{}};
 var PK={polar:1,manv:1,bow:1,nmea:1,skurl:1,src:1,boat:1};
-function save(k,v){try{localStorage.setItem(SP+k,JSON.stringify(v));}catch(e){}if(PK[k])profHook(k,v);}
+function save(k,v){try{localStorage.setItem(SP+k,JSON.stringify(v));}catch(e){}if(PK[k])profHook(k,v);if(k==="course"||k==="line")syncLocal(k);}
 function load(k,d){try{var v=localStorage.getItem(SP+k);for(var i=0;v==null&&i<OLD.length;i++){v=localStorage.getItem(OLD[i]+k);if(v!=null)localStorage.setItem(SP+k,v);}return v==null?d:JSON.parse(v);}catch(e){return d;}}
 function forget(k){try{localStorage.removeItem(SP+k);OLD.forEach(function(p){localStorage.removeItem(p+k);});}catch(e){}if(PK[k])profHook(k,undefined);}
 function fin(x){return typeof x==="number"&&isFinite(x);}
@@ -1771,7 +1772,8 @@ $("meClose").onclick=function(){$("mkEdDlg").close();};
 /* ---------- NMEA 0183 over TCP/UDP, via the local bridge ---------- */
 var es=null;
 function nmMsg(t,c){var m=$("nmMsg");m.textContent=t;m.className="msg "+(c||"");}
-function disconnectNM(){if(es){try{es.close();}catch(e){}es=null;}if(NATIVE)nat({cmd:"disconnect"});natLive=false;}
+var nmGen=0;
+function disconnectNM(){nmGen++;if(es){try{es.close();}catch(e){}es=null;}if(NATIVE)nat({cmd:"disconnect"});natLive=false;}
 var natLive=false,natProto="tcp";
 function connectNM(){
   disconnectNM();raw={};S={};hist=[];ais={};
@@ -1786,7 +1788,10 @@ function connectNM(){
   if(!/^https?:\/\//.test(br)){nmMsg("Bridge address must start with http://","err");return;}
   save("nmea",{proto:proto,host:host,port:port,bridge:br});
   setPill("err","Connecting");nmMsg("Asking the bridge to open "+proto.toUpperCase()+" "+(host||"*")+":"+port+" …");
+  var g=nmGen;   // a newer connect or a disconnect while this one was on its way wins
   fetch(br+"/connect?proto="+proto+"&host="+encodeURIComponent(host)+"&port="+port).then(function(r){return r.json();}).then(function(j){
+    if(g!==nmGen)return;
+    if(es){try{es.close();}catch(e){}es=null;}
     if(!j.ok){nmMsg((LOCAL?"":"Bridge: ")+j.error,"err");setPill("err","Not connected");return;}
     es=new EventSource(br+"/stream");var n=0;
     es.onmessage=function(ev){n++;parseNMEA(ev.data);if(n===1){save("src","nmea");setPill("live","Live, NMEA "+proto.toUpperCase());nmMsg("Receiving data.","ok");}};
@@ -3326,12 +3331,13 @@ setPolar(P);
 var profiles=null,activeId=null,applying=false;
 var PKEYS=["polar","manv","bow","nmea","skurl","src","boat"];
 function newId(){return "b"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
-function saveProfiles(){try{localStorage.setItem(SP+"profiles",JSON.stringify(profiles));localStorage.setItem(SP+"profile",JSON.stringify(activeId));}catch(e){}}
+function saveProfiles(){try{localStorage.setItem(SP+"profiles",JSON.stringify(profiles));localStorage.setItem(SP+"profile",JSON.stringify(activeId));}catch(e){}syncPush();}
 function activeProf(){if(!profiles)return null;for(var i=0;i<profiles.length;i++)if(profiles[i].id===activeId)return profiles[i];return null;}
 function profHook(k,v){
   if(applying)return;var p=activeProf();if(!p)return;
   if(v===undefined)delete p.data[k];else p.data[k]=JSON.parse(JSON.stringify(v));
   if(k==="boat"&&v)p.name=v;
+  p.t=Date.now();delete p.auto;
   saveProfiles();renderProfiles();
 }
 function srcText(d){
@@ -3355,9 +3361,13 @@ function renderProfiles(){
       '<span>'+esc(pol)+' · '+esc(srcText(d))+' · turn '+((d.manv&&d.manv.rate)||8)+'°/s · bow '+(d.bow||0)+' m</span></li>';
   }).join("");
 }
-function applyProfile(id){
+function applyProfile(id,quiet){
   var p=null;profiles.forEach(function(x){if(x.id===id)p=x;});if(!p)return;
+  if(!quiet&&id!==activeId&&!sync.applying)sync.t.active=Date.now();
   activeId=id;saveProfiles();
+  var pn=p.data.nmea||{},cur=[source,source==="nmea"?$("nmProto").value+" "+$("nmHost").value.trim()+" "+Number($("nmPort").value):"",source==="sk"?$("skUrl").value.trim():""];
+  var want=[p.data.src||"sim",(p.data.src||"sim")==="nmea"?(pn.proto||"tcp")+" "+(pn.host||"")+" "+Number(pn.port||0):"",(p.data.src||"sim")==="sk"?(p.data.skurl||""):""];
+  var same=quiet&&JSON.stringify(cur)===JSON.stringify(want);
   var d=p.data;applying=true;
   PKEYS.forEach(function(k){if(d[k]===undefined)forget(k);else save(k,d[k]);});
   applying=false;
@@ -3369,6 +3379,7 @@ function applyProfile(id){
   $("polarIn").value=d.polar?polarToText(d.polar):"";
   applyBoat();
   var s=d.src||"sim";
+  if(same)return;   // only the polar or the boat settings changed on another screen: keep the data running
   if(s==="nmea"&&nm.port){setSource("nmea");connectNM();}
   else if(s==="sk"&&d.skurl){setSource("sk");connectSK(d.skurl);}
   else setSource("sim");
@@ -3377,13 +3388,83 @@ function captureAll(){var d={};PKEYS.forEach(function(k){var v=load(k,undefined)
 (function initProfiles(){
   profiles=load("profiles",null);activeId=load("profile",null);
   if(!profiles||!profiles.length){
-    profiles=[{id:newId(),name:boatName||"MY BOAT",data:captureAll()}];activeId=profiles[0].id;saveProfiles();
+    profiles=[{id:newId(),name:boatName||"MY BOAT",data:captureAll(),t:0,auto:true}];activeId=profiles[0].id;saveProfiles();
   }
   if(!activeProf()){activeId=profiles[0].id;saveProfiles();}
   renderProfiles();
   // the claude.ai preview cannot hand out files; export works in the app and when the page is opened as a file
   if(/claude/.test(location.host))$("profExport").hidden=true;
 })();
+/* ---------- the same boats, course and start line on every screen of this MaxRace program ---------- */
+// The PC program keeps one shared copy; the PC window, phones and tablets that open it send their changes
+// and check for the others' every 3 s. Boats merge by id (the newest edit wins), course and line by time.
+(function syncInit(){
+  sync.del=load("profdel",{});sync.t=load("synct",{});
+  // course and line made before sharing existed count as real, so they reach the other screens
+  if(sync.t.course===undefined&&course&&course.marks&&course.marks.length)sync.t.course=1;
+  if(sync.t.line===undefined&&line&&line.pin&&line.boat)sync.t.line=1;
+  if(!LOCAL)return;
+  syncFetch(true);
+  setInterval(function(){if(!document.hidden)syncFetch(false);},3000);
+})();
+function syncFetch(first){
+  fetch(location.origin+"/shared?v="+(first?-1:sync.ver)).then(function(r){return r.json();}).then(function(j){
+    syncApply(j);if(first)syncPush(true);
+  }).catch(function(){});
+}
+function mergeProfs(loc,rem,del){
+  var map={},order=[];
+  loc.concat(rem||[]).forEach(function(p){if(!p||!p.id)return;if(!map[p.id]){order.push(p.id);map[p.id]=p;}else if((p.t||0)>(map[p.id].t||0))map[p.id]=p;});
+  var all=order.map(function(id){return map[id];}),real=all.some(function(p){return !p.auto;});
+  return all.filter(function(p){return !(del[p.id]>=(p.t||0))&&!(real&&p.auto);});
+}
+function syncApply(j){
+  if(!j||j.same||!j.data)return;
+  sync.ver=j.ver||0;var d=j.data;sync.applying=true;
+  try{
+    if(d.profdel)Object.keys(d.profdel).forEach(function(id){sync.del[id]=Math.max(sync.del[id]||0,d.profdel[id]);});
+    if(d.profiles&&d.profiles.length){
+      var before=JSON.stringify(activeProf()),list=mergeProfs(profiles,d.profiles,sync.del);
+      if(list.length){
+        profiles=list;
+        var target=activeId;
+        if(d.active&&(d.activeT||0)>(sync.t.active||0)&&list.some(function(p){return p.id===d.active;})){target=d.active;sync.t.active=d.activeT;}
+        if(!list.some(function(p){return p.id===target;}))target=list[0].id;
+        var tp=list.filter(function(p){return p.id===target;})[0];
+        if(target!==activeId||JSON.stringify(tp)!==before)applyProfile(target,target===activeId);
+        else saveProfiles();
+        renderProfiles();
+      }
+    }
+    if(d.course&&(d.courseT||0)>(sync.t.course||0)){
+      course=d.course;sync.t.course=d.courseT;rnd={armed:false,min:Infinity};
+      try{localStorage.setItem(SP+"course",JSON.stringify(course));}catch(e){}
+      renderCourse();
+    }
+    if(d.lineT!==undefined&&(d.lineT||0)>(sync.t.line||0)){
+      line=d.line||null;lineDemo=false;sync.t.line=d.lineT;
+      try{localStorage.setItem(SP+"line",JSON.stringify(line));}catch(e){}
+    }
+    try{localStorage.setItem(SP+"profdel",JSON.stringify(sync.del));localStorage.setItem(SP+"synct",JSON.stringify(sync.t));}catch(e){}
+  }finally{sync.applying=false;}
+}
+function syncPush(now){
+  if(!LOCAL||sync.applying||!profiles)return;
+  clearTimeout(sync.timer);
+  sync.timer=setTimeout(function(){
+    var data={profiles:profiles,profdel:sync.del,active:activeId,activeT:sync.t.active||0};
+    if(sync.t.course)(data.course=course,data.courseT=sync.t.course);
+    if(sync.t.line&&!lineDemo)(data.line=line,data.lineT=sync.t.line);
+    fetch(location.origin+"/shared",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data:data})})
+      .then(function(r){return r.json();}).then(syncApply).catch(function(){});
+  },now?0:400);
+}
+function syncLocal(k){
+  if(sync.applying)return;
+  if(k==="line"&&lineDemo)return;
+  sync.t[k]=Date.now();try{localStorage.setItem(SP+"synct",JSON.stringify(sync.t));}catch(e){}
+  syncPush();
+}
 $("boatSel").onchange=function(e){
   var v=e.target.value;
   if(v==="__new"||v==="__manage"){e.target.value=activeId;if(v==="__new")$("profNew").click();$("setBtn").click();return;}
@@ -3393,17 +3474,18 @@ $("profList").onclick=function(e){
   var b=e.target.closest("button");if(!b)return;var id=b.getAttribute("data-id"),a=b.getAttribute("data-a");
   if(a==="use"){applyProfile(id);profMsg("Switched to "+activeProf().name+".","ok");}
   if(a==="del"){var p=profiles.filter(function(x){return x.id===id;})[0];if(!p||!confirm("Delete the boat "+p.name+"?"))return;
+    sync.del[id]=Date.now();try{localStorage.setItem(SP+"profdel",JSON.stringify(sync.del));}catch(x){}
     profiles=profiles.filter(function(x){return x.id!==id;});if(id===activeId)applyProfile(profiles[0].id);else{saveProfiles();renderProfiles();}}
 };
 function uniqueName(n){var names=profiles.map(function(p){return p.name;}),k=2,out=n;while(names.indexOf(out)>=0){out=n+" "+k;k++;}return out;}
 $("profNew").onclick=function(){
-  var name=uniqueName("NEW BOAT");profiles.push({id:newId(),name:name,data:{boat:name,src:"sim"}});
+  var name=uniqueName("NEW BOAT");profiles.push({id:newId(),name:name,data:{boat:name,src:"sim"},t:Date.now()});
   applyProfile(profiles[profiles.length-1].id);profMsg("New boat created with the demo polar and the simulator. Give it a name, then load its polar and enter its IP and port.","ok");
   $("boatIn").focus();$("boatIn").select();
 };
 $("profDup").onclick=function(){
   var p=activeProf();if(!p)return;var name=uniqueName(p.name+" COPY"),d=JSON.parse(JSON.stringify(p.data));d.boat=name;
-  profiles.push({id:newId(),name:name,data:d});applyProfile(profiles[profiles.length-1].id);profMsg("Copy created. Rename it and change what differs.","ok");
+  profiles.push({id:newId(),name:name,data:d,t:Date.now()});applyProfile(profiles[profiles.length-1].id);profMsg("Copy created. Rename it and change what differs.","ok");
   $("boatIn").focus();$("boatIn").select();
 };
 $("profExport").onclick=function(){
@@ -3418,7 +3500,7 @@ $("profImport").onchange=function(e){
       var j=JSON.parse(r.result),list=j.profiles||(j.data?[j]:null);
       if(!list||!list.length)throw new Error("no boats in this file");
       var n=0;list.forEach(function(p){if(!p||!p.data)return;var name=uniqueName(String(p.name||"BOAT").toUpperCase().slice(0,24));
-        var d=JSON.parse(JSON.stringify(p.data));d.boat=name;profiles.push({id:newId(),name:name,data:d});n++;});
+        var d=JSON.parse(JSON.stringify(p.data));d.boat=name;profiles.push({id:newId(),name:name,data:d,t:Date.now()});n++;});
       saveProfiles();renderProfiles();profMsg("Imported "+n+" boat"+(n===1?"":"s")+". Choose one at the top left to use it.","ok");
     }catch(err){profMsg("Could not read that file: "+err.message,"err");}
     e.target.value="";
@@ -3437,6 +3519,13 @@ if(LOCAL||NATIVE){
   }).catch(function(){});
   var src0=load("src",null),nm0=load("nmea",{});
   // first start: a single screen asking only for IP and port
+  // another screen (phone, tablet) of a program already reading the instruments: use that source, no questions
+  if(!src0&&LOCAL)fetch("/status").then(function(r){return r.json();}).then(function(st){
+    var so=st&&st.source;
+    if(so&&so.port&&(st.connected||st.error==="connecting")){
+      $("welcome").close();$("nmProto").value=so.proto||"tcp";$("nmHost").value=so.host||"";$("nmPort").value=so.port;setSource("nmea");connectNM();
+    }
+  }).catch(function(){});
   if(!src0){
     $("welcome").showModal();
     $("wProto").onchange=function(){$("wHost").placeholder=$("wProto").value==="udp"?"optional":"192.168.1.50";};

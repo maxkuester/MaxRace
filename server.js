@@ -94,7 +94,19 @@ function lanAddresses() {
 function startServer(opts) {
   const o = Object.assign({ port: 8765, host: "0.0.0.0", root: __dirname, page: "maxrace.html", log: (m) => console.log("[maxrace] " + m),
     // finished races are written here; the desktop app passes Documents/MaxRace/Races and a PDF maker
-    raceDir: path.join(os.homedir(), "Documents", "MaxRace", "Races"), makePdf: null, reveal: null }, opts || {});
+    raceDir: path.join(os.homedir(), "Documents", "MaxRace", "Races"), makePdf: null, reveal: null,
+    // boats, course and start line shared by every screen that opens this program (PC, phones, tablets)
+    sharedFile: path.join(os.homedir(), "Documents", "MaxRace", "shared.json") }, opts || {});
+  let shared = { ver: 0, data: {} };
+  try { shared = JSON.parse(fs.readFileSync(o.sharedFile, "utf8")); if (!shared.data) shared = { ver: 0, data: {} }; } catch (e) {}
+  let saveT = null;
+  const persist = () => {
+    clearTimeout(saveT);
+    saveT = setTimeout(() => {
+      try { fs.mkdirSync(path.dirname(o.sharedFile), { recursive: true }); fs.writeFileSync(o.sharedFile, JSON.stringify(shared)); }
+      catch (e) { o.log("could not save shared settings: " + e.message); }
+    }, 300);
+  };
   const source = createSource(o.log);
 
   const json = (res, obj, code) => {
@@ -121,12 +133,21 @@ function startServer(opts) {
       if (proto !== "tcp" && proto !== "udp") return json(res, { ok: false, error: "protocol must be tcp or udp" });
       if (!(port > 0 && port < 65536)) return json(res, { ok: false, error: "port must be between 1 and 65535" });
       if (proto === "tcp" && !host) return json(res, { ok: false, error: "TCP needs the IP address of the source" });
+      // another screen asking for the source already running (the phone opening the dash): keep it, no restart
+      const cur = source.status.source;
+      if (cur && cur.proto === proto && cur.host === host && cur.port === port && (source.status.connected || source.status.error === "connecting"))
+        return json(res, { ok: true, same: true });
       source.configure(proto, host, port);
       return json(res, { ok: true });
     }
     if (p === "/disconnect") { source.stop(); source.status.connected = false; source.status.error = "stopped"; return json(res, { ok: true }); }
     if (p === "/status") return json(res, source.status);
     if (p === "/race/save" && req.method === "POST") return saveRace(req, res);
+    if (p === "/shared" && req.method === "GET") {
+      const v = Number(url.searchParams.get("v") || -1);
+      return json(res, v === shared.ver ? { ver: shared.ver, same: true } : shared);
+    }
+    if (p === "/shared" && req.method === "POST") return postShared(req, res);
     if (p === "/race/reveal") {
       fs.mkdirSync(o.raceDir, { recursive: true });
       if (o.reveal) o.reveal(o.raceDir);
@@ -170,6 +191,41 @@ function startServer(opts) {
       } catch (e) {
         json(res, { ok: false, error: e.message });
       }
+    });
+  }
+
+  // each screen sends its whole view; profiles merge by id (newest edit wins, deletions win over older edits),
+  // the course, the start line and the boat in use go by their own time stamps
+  function mergeShared(a, b) {
+    const out = Object.assign({}, a);
+    const del = Object.assign({}, a.profdel || {});
+    for (const [id, t] of Object.entries(b.profdel || {})) del[id] = Math.max(del[id] || 0, t);
+    if (a.profiles || b.profiles) {
+      const map = new Map();
+      for (const pr of [...(a.profiles || []), ...(b.profiles || [])]) {
+        if (!pr || !pr.id) continue;
+        const cur = map.get(pr.id);
+        if (!cur || (pr.t || 0) > (cur.t || 0)) map.set(pr.id, pr);
+      }
+      const hasReal = [...map.values()].some((pr) => !pr.auto);
+      out.profiles = [...map.values()].filter((pr) => !(del[pr.id] >= (pr.t || 0)) && !(hasReal && pr.auto));
+      out.profdel = del;
+    }
+    for (const [k, tk] of [["course", "courseT"], ["line", "lineT"], ["active", "activeT"]]) {
+      if (b[tk] !== undefined && (b[tk] || 0) >= (a[tk] || 0)) { out[k] = b[k]; out[tk] = b[tk]; }
+    }
+    return out;
+  }
+  function postShared(req, res) {
+    let body = "", size = 0;
+    req.on("data", (c) => { size += c.length; if (size > 20e6) { req.destroy(); return; } body += c; });
+    req.on("end", () => {
+      try {
+        const j = JSON.parse(body);
+        shared = { ver: Date.now(), data: mergeShared(shared.data || {}, j.data || {}) };
+        persist();
+        json(res, shared);
+      } catch (e) { json(res, { ok: false, error: e.message }); }
     });
   }
 

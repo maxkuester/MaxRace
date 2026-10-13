@@ -1715,6 +1715,7 @@ function openMkMenu(m,p){
       '<button data-a="edit">Edit name and position…</button>'+
       (inSeq?'<button data-a="go">Sail to this mark now</button>':'')+
       '<button data-a="seq">Add to the sequence</button>'+
+      '<button data-a="bd">New mark by bearing and distance from here…</button>'+
       (mUndo&&mUndo.id===m.id?'<button data-a="undo">Undo the move</button>':'')+
       '<button data-a="del" class="dz">Delete mark</button>';
   } else {
@@ -1731,6 +1732,10 @@ $("mkMenu").onclick=function(e){
   var a=b.getAttribute("data-a"),at=mMenuAt,m=at.id&&markById(at.id);hideMkMenu();
   if(a==="edit"&&m)openMkEdit(m);
   else if(a==="go"&&m){var i=-1;course.seq.forEach(function(l,j){if(l.id===m.id&&(i<0||(j>=course.idx&&i<course.idx)))i=j;});if(i>=0)setActive(i,"NEXT MARK  "+m.name);}
+  else if(a==="bd"&&m){
+    renderCourse();fillBdFrom();$("bdFrom").value="mk:"+m.id;crsMsg("");bdMsg("From "+m.name+": enter bearing and distance.");$("crsDlg").showModal();
+    setTimeout(function(){$("bdBrg").scrollIntoView({block:"center"});$("bdBrg").focus();},50);
+  }
   else if(a==="seq"&&m){course.seq.push({id:m.id,side:"P"});saveCourse();renderCourse();toast(m.name+" ADDED TO THE SEQUENCE ("+course.seq.length+")");}
   else if(a==="undo"&&m&&mUndo){m.lat=mUndo.lat;m.lon=mUndo.lon;mUndo=null;saveCourse();renderCourse();toast(m.name+" BACK WHERE IT WAS");}
   else if(a==="del"&&m){if(confirm("Delete "+m.name+" and remove it from the sequence?"))delMark(m.id);}
@@ -1854,7 +1859,8 @@ function nmChecksum(line){
 }
 var aisParts={};
 function parseNMEA(line){
-  line=line.trim();if(!/^[$!]/.test(line)||!nmChecksum(line))return;
+  line=line.trim().replace(/^\\[^\\]*\\/,"");   // some gateways put a tag block (\s:…\) in front of the sentence
+  if(!/^[$!]/.test(line)||!nmChecksum(line))return;
   var body=line.split("*")[0],f=body.split(","),id=f[0].slice(3),talk=f[0];
   if(talk==="!AIVDM"){aisSentence(f);return;}
   if(talk==="!AIVDO")return;
@@ -1870,6 +1876,9 @@ function parseNMEA(line){
     case "VTG":{var c=nmNum(f[1]),so=nmNum(f[5]);if(fin(c))raw.cog=c;if(fin(so))raw.sog=so;break;}
     case "RMC":{if(f[2]!=="A")break;var la=nmLat(nmNum(f[3]),f[4]),lo=nmLat(nmNum(f[5]),f[6]);if(fin(la)){raw.lat=la;raw.lon=lo;}
       var s2=nmNum(f[7]),c2=nmNum(f[8]);if(fin(s2))raw.sog=s2;if(fin(c2))raw.cog=c2;break;}
+    case "GGA":{if(f[6]==="0"||f[6]==="")break;var la3=nmLat(nmNum(f[2]),f[3]),lo3=nmLat(nmNum(f[4]),f[5]);if(fin(la3)&&fin(lo3)){raw.lat=la3;raw.lon=lo3;}break;}
+    case "VWR":{var aw=nmNum(f[1]),ws=nmNum(f[3]);if(fin(aw)){raw.awa=f[2]==="L"?-aw:aw;}if(fin(ws))raw.aws=ws;else{var wm=nmNum(f[5]);if(fin(wm))raw.aws=wm*KN;}break;}
+    case "VWT":{var tw=nmNum(f[1]),ts=nmNum(f[3]);if(fin(tw)&&fin(ts)){raw.twa=f[2]==="L"?-tw:tw;raw.tws=ts;raw._t=1;}break;}
     case "GLL":{if(f[6]&&f[6]!=="A")break;var la2=nmLat(nmNum(f[1]),f[2]),lo2=nmLat(nmNum(f[3]),f[4]);if(fin(la2)){raw.lat=la2;raw.lon=lo2;}break;}
     case "RMB":{if(f[1]!=="A")break;var ml=nmLat(nmNum(f[6]),f[7]),mo=nmLat(nmNum(f[8]),f[9]);if(fin(ml)){raw.mlat=ml;raw.mlon=mo;raw._m=1;}
       var rg=nmNum(f[10]),br2=nmNum(f[11]),vm=nmNum(f[12]);if(fin(rg))raw.dtw=rg;if(fin(br2)){raw.btw=br2;raw._b=1;}if(fin(vm))raw.vmc=vm;break;}
@@ -2114,6 +2123,7 @@ function bdOrigins(){
 }
 function fillBdFrom(){
   var sel=$("bdFrom"),cur=sel.value||course.bdFrom||"",o=bdOrigins();
+  if(!o.length&&!fin(S.lat))bdMsg("Waiting for the GPS position to use the boat as reference.");
   sel.innerHTML=o.length?o.map(function(x){return '<option value="'+esc(x.k)+'">'+esc(x.n)+'</option>';}).join(""):'<option value="">no reference yet</option>';
   if(o.some(function(x){return x.k===cur;}))sel.value=cur;
   $("bdRef").value=course.bdRef||"T";$("bdVar").value=course.bdVar||"";
@@ -2122,9 +2132,12 @@ $("bdTwd").onclick=function(){
   if(!fin(S.twd)){bdMsg("No true wind direction yet.","err");return;}
   $("bdRef").value="T";$("bdBrg").value=Math.round(S.twd);bdMsg("Bearing set to the current TWD, "+deg3(S.twd)+" true.","ok");
 };
+$("bdFrom").addEventListener("focus",function(){fillBdFrom();});
+$("bdFrom").addEventListener("pointerdown",function(){fillBdFrom();});
 $("bdAdd").onclick=function(){
-  var o=bdOrigins().filter(function(x){return x.k===$("bdFrom").value;})[0];
-  if(!o){bdMsg("Choose the reference point.","err");return;}
+  var all=bdOrigins();
+  if(!all.length){bdMsg("No reference point yet: the boat has no GPS position, and there is no start line or mark. Wait for the GPS, ping the line or add a mark by coordinates first.","err");fillBdFrom();return;}
+  var o=all.filter(function(x){return x.k===$("bdFrom").value;})[0]||all[0];
   var b=Number(String($("bdBrg").value).replace(",","."));
   if(!(fin(b)&&b>=0&&b<=360)){bdMsg("Bearing must be 0 to 360.","err");return;}
   var ref=$("bdRef").value,vr=parseVar($("bdVar").value);
@@ -3337,7 +3350,8 @@ function profHook(k,v){
   if(applying)return;var p=activeProf();if(!p)return;
   if(v===undefined)delete p.data[k];else p.data[k]=JSON.parse(JSON.stringify(v));
   if(k==="boat"&&v)p.name=v;
-  p.t=Date.now();delete p.auto;
+  // the untouched default boat stays "auto" when only the data source is set (a phone joining the PC's program)
+  p.t=Date.now();if(k!=="src"&&k!=="nmea"&&k!=="skurl")delete p.auto;
   saveProfiles();renderProfiles();
 }
 function srcText(d){
@@ -3479,8 +3493,9 @@ $("profList").onclick=function(e){
 };
 function uniqueName(n){var names=profiles.map(function(p){return p.name;}),k=2,out=n;while(names.indexOf(out)>=0){out=n+" "+k;k++;}return out;}
 $("profNew").onclick=function(){
-  var name=uniqueName("NEW BOAT");profiles.push({id:newId(),name:name,data:{boat:name,src:"sim"},t:Date.now()});
-  applyProfile(profiles[profiles.length-1].id);profMsg("New boat created with the demo polar and the simulator. Give it a name, then load its polar and enter its IP and port.","ok");
+  var name=uniqueName("NEW BOAT");var nd={boat:name,src:load("src","sim")};if(load("nmea",null))nd.nmea=load("nmea",null);if(load("skurl",""))nd.skurl=load("skurl","");
+  profiles.push({id:newId(),name:name,data:nd,t:Date.now()});   // a new boat keeps the instruments you are connected to
+  applyProfile(profiles[profiles.length-1].id);profMsg("New boat created with the demo polar and the current data source. Give it a name, then load its polar.","ok");
   $("boatIn").focus();$("boatIn").select();
 };
 $("profDup").onclick=function(){

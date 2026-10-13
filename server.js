@@ -181,8 +181,9 @@ function startServer(opts) {
           if (n) fs.writeFileSync(path.join(dir, n), String(text), "utf8");
         }
         let pdf = false;
-        const src = clean(j.pdf);
-        if (o.makePdf && src && fs.existsSync(path.join(dir, src))) {
+        for (const one of [].concat(j.pdf || [])) {      // one report or several (1 SD-trimmed and all points)
+          const src = clean(one);
+          if (!o.makePdf || !src || !fs.existsSync(path.join(dir, src))) continue;
           try { await o.makePdf(path.join(dir, src), path.join(dir, src.replace(/\.html?$/i, "") + ".pdf")); pdf = true; }
           catch (e) { o.log("PDF failed: " + e.message); }
         }

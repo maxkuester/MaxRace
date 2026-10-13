@@ -632,7 +632,7 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
 <dialog id="repDlg" class="repdlg">
   <div class="repwrap">
     <div class="row repbar"><h2 id="repTitle">Report</h2><span class="spacer"></span>
-      <button class="btn" id="repPrint">Print / PDF</button><button class="btn" id="repCsv">CSV</button><button class="btn" id="repHtml">HTML</button><button class="btn" id="repDir" hidden>Open folder</button><button class="btn primary" id="repClose">Close</button></div>
+      <span class="seg" role="group" aria-label="Report method"><button id="repTrim" aria-pressed="true">1 SD-trimmed</button><button id="repAll" aria-pressed="false">All points</button></span><button class="btn" id="repPrint">Print / PDF</button><button class="btn" id="repCsv">CSV</button><button class="btn" id="repHtml">HTML</button><button class="btn" id="repDir" hidden>Open folder</button><button class="btn primary" id="repClose">Close</button></div>
     <iframe id="repFrame" title="Regatta performance report"></iframe>
   </div>
 </dialog>
@@ -2661,14 +2661,15 @@ function download(name,text,type){
 // desktop app: the built-in server writes the files to Documents/MaxRace/Races and makes the PDF
 function raceToDisk(r){
   var b=fileBase(r),files={};
-  files[b+".csv"]=raceCsv(r);files[b+".gpx"]=raceGpx(r);files[b+" report.html"]=reportHtml(r,raceAnalysis(r));
-  if(NATIVE){nat({cmd:"save",folder:b,files:files,pdf:b+" report.html"});return;}
-  fetch(location.origin+"/race/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({folder:b,files:files,pdf:b+" report.html"})})
+  files[b+".csv"]=raceCsv(r);files[b+".gpx"]=raceGpx(r);files[b+" report.html"]=reportHtml(r,raceAnalysis(r));files[b+" report (all points).html"]=reportHtml(r,raceAnalysis(r,false));
+  var pdfs=[b+" report.html",b+" report (all points).html"];
+  if(NATIVE){nat({cmd:"save",folder:b,files:files,pdf:pdfs});return;}
+  fetch(location.origin+"/race/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({folder:b,files:files,pdf:pdfs})})
     .then(function(x){return x.json();}).then(raceSaved)
     .catch(function(){rcMsg("Could not reach the MaxRace program to write the files. Use the CSV button.","err");});
 }
 function raceSaved(j){
-  if(j.ok){rcMsg("Race saved in "+j.dir+(j.pdf?" (CSV, GPX, report HTML and PDF).":" (CSV, GPX and report)."),"ok");if(LOCAL){$("repDir").hidden=false;$("rcDir").hidden=false;}}
+  if(j.ok){rcMsg("Race saved in "+j.dir+(j.pdf?" (CSV, GPX, both reports as HTML and PDF: 1 SD-trimmed and all points).":" (CSV, GPX and both reports: 1 SD-trimmed and all points)."),"ok");if(LOCAL){$("repDir").hidden=false;$("rcDir").hidden=false;}}
   else rcMsg("Could not write the race files: "+(j.error||"unknown error")+". Use the CSV button.","err");
 }
 
@@ -2722,11 +2723,15 @@ function trim1sd(arr){
   return {keep:arr.filter(function(b){return Math.abs(b.pct-m)<=sd;}),out:arr.filter(function(b){return Math.abs(b.pct-m)>sd;})};
 }
 function avgOf(arr,k){var s=0,n=0;arr.forEach(function(b){if(fin(b[k])){s+=b[k];n++;}});return n?s/n:NaN;}
+var TRIM=true;   // false: the "all points" report, no standard-deviation filter
 function groupStats(arr){
-  var t=trim1sd(arr),k=t.keep;
+  var t=TRIM?trim1sd(arr):{keep:arr.slice(),out:[]},k=t.keep;
   return {n:k.length,all:arr.length,pct:avgOf(k,"pct"),tws:avgOf(k,"tws"),bsp:avgOf(k,"bsp"),tgt:avgOf(k,"tgt"),twa:avgOf(k,"atwa"),out:t.out};
 }
-function raceAnalysis(r){
+function raceAnalysis(r,trim){
+  TRIM=trim!==false;var A=raceAnalysis0(r);A.trim=TRIM;TRIM=true;return A;
+}
+function raceAnalysis0(r){
   var N=function(v){return v==null?NaN:v;};
   var pts=r.pts.map(function(a){return {t:a[0]/1000,lat:N(a[1]),lon:N(a[2]),tws:N(a[3]),twd:N(a[4]),twa:N(a[5]),bsp:N(a[8]),tgt:N(a[13])};});
   var dur=((r.t1||r.t0+r.pts[r.pts.length-1][0])-r.t0)/1000;
@@ -2843,7 +2848,7 @@ function chartPerf(A){
     var c=RC[b.mode],x=fx(b.t/60).toFixed(1),y=fy(b.pct).toFixed(1),tt='<title>'+Math.round(b.t/60)+' min · '+b.pct.toFixed(0)+'% · TWA '+b.atwa.toFixed(0)+'° · TWS '+b.tws.toFixed(1)+' kt</title>';
     s+=b.ex?'<circle cx="'+x+'" cy="'+y+'" r="3.2" fill="none" stroke="'+c+'" stroke-width="1.2" opacity=".55">'+tt+'</circle>':'<circle cx="'+x+'" cy="'+y+'" r="3.4" fill="'+c+'" stroke="#fff" stroke-width=".8">'+tt+'</circle>';
   });
-  return s+'</svg>'+legend([["U","Upwind"],["R","Reach"],["D","Downwind"]],true);
+  return s+'</svg>'+legend([["U","Upwind"],["R","Reach"],["D","Downwind"]],A.trim);
 }
 function legend(items,ex){
   return '<div class="leg">'+items.map(function(it){return '<span><i style="background:'+RC[it[0]]+'"></i>'+it[1]+'</span>';}).join("")+(ex?'<span><i class="ho"></i>Excluded (&gt;1 SD)</span>':'')+'</div>';
@@ -2949,7 +2954,8 @@ function overviewLine(p){
 function reportHtml(r,A){
   var o=A.overall,t1=r.t1||r.t0+A.dur*1000,durMin=Math.round(A.dur/60);
   var dateTxt=new Date(r.t0).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
-  var sub=esc(r.boat||"MaxRace")+" · "+dateTxt+" · "+hhmm(r.t0,true)+" – "+hhmm(t1,true)+" UTC ("+hhmm(r.t0)+" – "+hhmm(t1)+" local) · "+durMin+" min race";
+  var sub=esc(r.boat||"MaxRace")+" · "+dateTxt+" · "+hhmm(r.t0,true)+" – "+hhmm(t1,true)+" UTC ("+hhmm(r.t0)+" – "+hhmm(t1)+" local) · "+durMin+" min race"+(A.trim?"":" · all points, no SD filter");
+  var TL=A.trim?"1 SD-trimmed":"all points";
   var srcTxt=r.src==="nmea"?"live instruments (NMEA 0183)":r.src==="sk"?"live instruments (Signal K)":r.src==="import"?"an imported track file":r.src==="sim"?"the MaxRace simulator (not real data)":"the instruments";
   var notes=[];
   notes.push("Recorded by MaxRace from "+srcTxt+": "+r.pts.length+" points, one every "+r.dt+" s, over "+durMin+" minutes and "+A.dist.toFixed(2)+" nm sailed. Analysed as 10-second averages ("+A.bins.length+" in all).");
@@ -2962,7 +2968,8 @@ function reportHtml(r,A){
     notes.push("Leg "+sp.leg+" contained <b>"+sp.parts.length+" distinct sailing phases</b> with no mark between them ("+sp.parts.map(function(p){return p.type.toLowerCase()+" ~"+Math.round(p.twa)+"° TWA";}).join(", then ")+"). It was split at the natural mode change"+
       (sp.parts.length>1?" (t≈"+sp.parts.slice(1).map(function(p){return Math.round(p.t/60);}).join(" and ")+" min)":"")+" rather than left as one misleading blended average.");
   });
-  notes.push("TWA ≥ 38° is included, boat speed under 0.5 kt is left out, and every figure below excludes points more than 1 standard deviation from its group mean.");
+  notes.push(A.trim?"TWA ≥ 38° is included, boat speed under 0.5 kt is left out, and every figure below excludes points more than 1 standard deviation from its group mean."
+    :"TWA ≥ 38° is included and boat speed under 0.5 kt is left out. <b>No standard-deviation filter</b>: every remaining point counts, manoeuvres and outliers included, so the averages are usually a little lower and noisier than in the 1 SD-trimmed report.");
   if(r.src==="sim")notes.push("<b>Simulated data</b>: this report shows how the analysis works, not how a real boat sailed.");
   var posRows=[["U","Upwind (TWA&lt;75°)"],["R","Reach (75–115°)"],["D","Downwind (≥115°)"]].map(function(x){var g=A.pos[x[0]];
     return '<tr><td><i class="sw" style="background:'+RC[x[0]]+'"></i>'+x[1]+'</td><td>'+g.n+'</td><td>'+f(g.tws,1," kt")+'</td><td>'+f(g.bsp,2," kt")+'</td><td>'+f(g.tgt,2," kt")+'</td><td><b>'+f(g.pct,1,"%")+'</b></td></tr>';}).join("");
@@ -2982,24 +2989,25 @@ function reportHtml(r,A){
   return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Regatta Performance Report · '+esc(raceName(r))+'</title><style>'+css+'</style></head><body><div class="pg">'+
     '<h1>Regatta Performance Report</h1><p class="sub">'+sub+'</p>'+
     '<h2>Notes on the data</h2>'+notes.map(function(n){return '<p>'+n+'</p>';}).join("")+
-    '<h2>Race Overview</h2><div class="kpis"><div class="kpi"><b>'+f(o.pct,1,"%")+'</b><span>Avg % of Polar Target<br>(1 SD-trimmed, n='+o.n+')</span></div><div class="kpi"><b>'+f(o.tws,1," kt")+'</b><span>Avg True Wind Speed</span></div><div class="kpi"><b>'+f(o.bsp,2," kt")+'</b><span>Avg Boat Speed (STW)</span></div><div class="kpi"><b>'+f(o.tgt,2," kt")+'</b><span>Avg Polar Target Speed</span></div></div>'+
+    '<h2>Race Overview</h2><div class="kpis"><div class="kpi"><b>'+f(o.pct,1,"%")+'</b><span>Avg % of Polar Target<br>('+TL+', n='+o.n+')</span></div><div class="kpi"><b>'+f(o.tws,1," kt")+'</b><span>Avg True Wind Speed</span></div><div class="kpi"><b>'+f(o.bsp,2," kt")+'</b><span>Avg Boat Speed (STW)</span></div><div class="kpi"><b>'+f(o.tgt,2," kt")+'</b><span>Avg Polar Target Speed</span></div></div>'+
     '<p style="margin-top:10px">'+overviewLine(o.pct)+'</p>'+
     '<h2>Performance Over the Race</h2><div class="fig">'+chartPerf(A)+'</div>'+
     '<h2>Track</h2><div class="fig">'+chartTrack(A,r)+'</div>'+
     '<h2>Wind Over the Race</h2><div class="fig">'+chartWind(A,"tws","TWS","kt")+chartWind(A,"twd","TWD","°")+'</div>'+
-    '<h2>Point of Sail Summary (1 SD-trimmed)</h2><table><tr><th>Point of Sail</th><th>Points</th><th>Avg TWS</th><th>Avg STW</th><th>Avg Polar Target</th><th>% of Polar</th></tr>'+posRows+'</table>'+
-    '<h2>Leg-by-Leg Breakdown (1 SD-trimmed)</h2><table><tr><th>Leg</th><th>Type</th><th>Time</th><th>Distance</th><th>Avg TWA</th><th>Avg TWS</th><th>Avg STW</th><th>Avg Target</th><th>% of Polar</th><th>Tacks / gybes</th></tr>'+legRows+'</table>'+
+    '<h2>Point of Sail Summary ('+TL+')</h2><table><tr><th>Point of Sail</th><th>Points</th><th>Avg TWS</th><th>Avg STW</th><th>Avg Polar Target</th><th>% of Polar</th></tr>'+posRows+'</table>'+
+    '<h2>Leg-by-Leg Breakdown ('+TL+')</h2><table><tr><th>Leg</th><th>Type</th><th>Time</th><th>Distance</th><th>Avg TWA</th><th>Avg TWS</th><th>Avg STW</th><th>Avg Target</th><th>% of Polar</th><th>Tacks / gybes</th></tr>'+legRows+'</table>'+
     '<div class="fig">'+chartLegs(A)+'</div>'+
     '<h2>Verdict</h2><p>'+verdictText(A)+'</p>'+
     '<p class="foot">MaxRace · generated '+new Date().toISOString().slice(0,16).replace("T"," ")+' UTC</p></div></body></html>';
 }
 
 /* ---------- dialogs ---------- */
-var repCur=null;
+var repCur=null,repTrimOn=true;
+function repName(r){return fileBase(r)+(repTrimOn?" report":" report (all points)");}
 function openReport(r){
   if(typeof r==="string")r=raceGet(r);if(!r){rcMsg("This race can no longer be read from storage.","err");return;}
   repCur=r;
-  try{$("repFrame").srcdoc=reportHtml(r,raceAnalysis(r));}catch(e){rcMsg("Could not build the report: "+e.message,"err");return;}
+  try{$("repFrame").srcdoc=reportHtml(r,raceAnalysis(r,repTrimOn));}catch(e){rcMsg("Could not build the report: "+e.message,"err");return;}
   $("repTitle").textContent=raceName(r);
   if($("raceDlg").open)$("raceDlg").close();
   $("repDlg").showModal();
@@ -3027,9 +3035,12 @@ $("raceList").onclick=function(e){
   if(a==="gpx")download(fileBase(r)+".gpx",raceGpx(r),"application/gpx+xml");
 };
 $("repClose").onclick=function(){$("repDlg").close();};
-$("repPrint").onclick=function(){if(NATIVE){if(repCur)nat({cmd:"pdfShare",name:fileBase(repCur)+" report.pdf",html:reportHtml(repCur,raceAnalysis(repCur))});return;}try{$("repFrame").contentWindow.focus();$("repFrame").contentWindow.print();}catch(e){}};
+$("repPrint").onclick=function(){if(NATIVE){if(repCur)nat({cmd:"pdfShare",name:repName(repCur)+".pdf",html:reportHtml(repCur,raceAnalysis(repCur,repTrimOn))});return;}try{$("repFrame").contentWindow.focus();$("repFrame").contentWindow.print();}catch(e){}};
 $("repCsv").onclick=function(){if(repCur)download(fileBase(repCur)+".csv",raceCsv(repCur),"text/csv");};
-$("repHtml").onclick=function(){if(repCur)download(fileBase(repCur)+" report.html",reportHtml(repCur,raceAnalysis(repCur)),"text/html");};
+$("repHtml").onclick=function(){if(repCur)download(repName(repCur)+".html",reportHtml(repCur,raceAnalysis(repCur,repTrimOn)),"text/html");};
+function setRepTrim(on){repTrimOn=on;$("repTrim").setAttribute("aria-pressed",on);$("repAll").setAttribute("aria-pressed",!on);if(repCur&&$("repDlg").open)$("repFrame").srcdoc=reportHtml(repCur,raceAnalysis(repCur,on));}
+$("repTrim").onclick=function(){setRepTrim(true);};
+$("repAll").onclick=function(){setRepTrim(false);};
 $("repDir").onclick=$("rcDir").onclick=function(){fetch(location.origin+"/race/reveal").catch(function(){});};
 if(/claude/.test(location.host)){$("repCsv").hidden=true;$("repHtml").hidden=true;}
 if(LOCAL){$("rcDir").hidden=false;$("rcDiskNote").hidden=false;$("repDir").hidden=false;}

@@ -202,18 +202,27 @@ final class DashViewController: UIViewController, WKScriptMessageHandler, WKUIDe
             return
         }
         let shown = "Files › On My " + (UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone") + " › MaxRace › Races › " + folder
-        guard let src = b["pdf"] as? String, let html = files[src] as? String else {
-            send("MRN.saved", ["ok": true, "dir": shown, "pdf": false])
-            return
+        // one report or several (1 SD-trimmed and all points), made one after the other
+        let wanted: [String] = (b["pdf"] as? [String]) ?? ((b["pdf"] as? String).map { [$0] } ?? [])
+        let jobs = wanted.compactMap { src -> (String, String)? in
+            guard let html = files[src] as? String else { return nil }
+            return (src, html)
         }
+        makePdfs(jobs, into: dir, made: false) { [weak self] ok in
+            self?.send("MRN.saved", ["ok": true, "dir": shown, "pdf": ok])
+        }
+    }
+
+    private func makePdfs(_ jobs: [(String, String)], into dir: URL, made: Bool, done: @escaping (Bool) -> Void) {
+        guard let (src, html) = jobs.first else { done(made); return }
         makePdf(html: html) { [weak self] data in
             guard let self = self else { return }
-            var ok = false
+            var ok = made
             if let d = data {
                 let pdfName = self.clean((src as NSString).deletingPathExtension + ".pdf")
-                ok = (try? d.write(to: dir.appendingPathComponent(pdfName))) != nil
+                if (try? d.write(to: dir.appendingPathComponent(pdfName))) != nil { ok = true }
             }
-            self.send("MRN.saved", ["ok": true, "dir": shown, "pdf": ok])
+            self.makePdfs(Array(jobs.dropFirst()), into: dir, made: ok, done: done)
         }
     }
 

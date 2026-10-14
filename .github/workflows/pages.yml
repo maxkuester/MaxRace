@@ -1,0 +1,44 @@
+# Publishes the browser version of MaxRace at https://<owner>.github.io/<repo>/
+# (phone GPS, simulator, course, start, race report; works offline once opened).
+# One-time setting: repository Settings › Pages › Source: "GitHub Actions".
+name: Publish MaxRace web
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  pages:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build the site
+        run: |
+          node scripts/fetch-fonts.js
+          mkdir -p site
+          cp maxrace.html site/index.html
+          cp web/sw.js web/manifest.webmanifest site/
+          cp build/icon.png site/icon.png
+          if [ -d fonts ]; then cp -R fonts site/fonts; fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

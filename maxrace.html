@@ -8,7 +8,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="MaxRace">
 <meta name="theme-color" content="#000000">
-<link rel="apple-touch-icon" href="/icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="manifest" href="manifest.webmanifest">
 <title>MaxRace</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -569,8 +570,9 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
   <div class="wl">
     <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon points='46,12 46,66 22,66' fill='%23F3F6F9'/%3E%3Cpolygon points='51,18 51,66 76,66' fill='%234FA3FF'/%3E%3Cpolygon points='18,70 82,70 75,80 25,80' fill='%23F3F6F9'/%3E%3C/svg%3E" alt="" width="64" height="64">
     <h2>MaxRace</h2>
-    <p>Connect your instruments. You find the IP address and port in the settings of your NMEA gateway or instrument system.</p>
-    <div class="wrow">
+    <p id="wIntro">Connect your instruments. You find the IP address and port in the settings of your NMEA gateway or instrument system.</p>
+    <p id="wWeb" hidden>This is the browser version: it uses the phone's own GPS (or the simulator). To read the boat instruments, open the MaxRace program on a computer on the boat Wi-Fi, or use the MaxRace iPhone app.</p>
+    <div class="wrow" id="wRow">
       <label>Protocol<select id="wProto" class="sel"><option value="tcp">TCP</option><option value="udp">UDP</option></select></label>
       <label>IP address<input type="text" id="wHost" inputmode="decimal" placeholder="192.168.1.50"></label>
       <label>Port<input type="text" id="wPort" inputmode="numeric" placeholder="10110"></label>
@@ -864,11 +866,13 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
 (function(){
 "use strict";
 // LOCAL: the page is served by the MaxRace app (or the bridge) on this machine, so it can reach the NMEA source directly
-var LOCAL=/^https?:$/.test(location.protocol)&&!/claude/.test(location.host);
+var LOCAL=location.protocol==="http:"&&!/claude/.test(location.host);   // served by the MaxRace program (plain http on the boat network)
+// HOSTED: the public web version (GitHub Pages), opened in any browser: phone GPS, simulator, no instruments
+var HOSTED=/github\.io$/.test(location.hostname);
 // NATIVE: inside the MaxRace iPhone/iPad app; the app opens TCP/UDP, reads the phone GPS and saves files
 var NATIVE=!!(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.mr);
 function nat(o){try{window.webkit.messageHandlers.mr.postMessage(o);}catch(e){}}
-if(LOCAL||NATIVE){var fl=document.createElement("link");fl.rel="stylesheet";fl.href="fonts/fonts.css";document.head.insertBefore(fl,document.head.firstChild);}
+if(LOCAL||NATIVE||HOSTED){var fl=document.createElement("link");fl.rel="stylesheet";fl.href="fonts/fonts.css";document.head.insertBefore(fl,document.head.firstChild);}
 var KN=1.943844, D2R=Math.PI/180, R2D=180/Math.PI;
 function wrap360(a){return ((a%360)+360)%360;}
 function wrap180(a){a=wrap360(a);return a>180?a-360:a;}
@@ -3572,6 +3576,17 @@ if(LOCAL||NATIVE){
   }
   if(src0==="gps")setSource("gps");
   if(src0==="nmea"&&nm0.port){$("nmProto").value=nm0.proto||"tcp";$("nmHost").value=nm0.host||"";$("nmPort").value=nm0.port;setSource("nmea");connectNM();}
+}
+if(HOSTED){
+  if("serviceWorker" in navigator)try{navigator.serviceWorker.register("sw.js");}catch(e){}   // works offline at sea once opened
+  $("nmBridgeRow").hidden=true;
+  var srcH=load("src",null);
+  if(srcH==="gps")setSource("gps");
+  else if(!srcH){
+    $("wWeb").hidden=false;$("wIntro").hidden=true;$("wRow").hidden=true;$("wGo").hidden=true;$("wGps").hidden=false;$("wGps").className="wgo";$("wGps").textContent="Use the phone's GPS";$("welcome").showModal();
+    $("wGps").onclick=function(){$("welcome").close();setSource("gps");};
+    $("wSim").onclick=function(){save("src","sim");$("welcome").close();};
+  }
 }
 if(load("src","sim")==="sk"&&load("skurl","")){setSource("sk");connectSK(load("skurl",""));}
 })();

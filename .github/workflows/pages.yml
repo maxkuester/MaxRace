@@ -3,10 +3,9 @@
 # One-time setting: repository Settings › Pages › Source: "GitHub Actions".
 name: Publish MaxRace web
 
+# Started by hand only (Actions › Publish MaxRace web › Run workflow) once Pages is switched on.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 permissions:
   contents: read

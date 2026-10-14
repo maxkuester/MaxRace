@@ -5,7 +5,7 @@
 const { app, BrowserWindow, Menu, shell, dialog, globalShortcut } = require("electron");
 const path = require("path");
 const fs = require("fs");
-const { startServer } = require("./server");
+const { startServer, lanAddresses } = require("./server");
 
 let win = null;
 
@@ -58,7 +58,11 @@ if (!app.requestSingleInstanceLock()) {
       ]},
       { label: "Help", submenu: [
         { label: "Open on a tablet or phone…", click: () => {
-          const urls = srv.addresses.map((a) => `http://${a}:${srv.port}`).join("\n") || "No network found. Connect this computer to the boat network first.";
+          // read now: the computer may have changed network since MaxRace started
+          const ads = lanAddresses(), wifi = ads.filter((a) => !a.startsWith("172.20.10.")), hot = ads.filter((a) => a.startsWith("172.20.10."));
+          let urls = wifi.map((a) => `http://${a}:${srv.port}`).join("\n");
+          if (hot.length) urls += (urls ? "\n\n" : "") + `This computer is on the iPhone hotspot (${hot[0]}): the phone cannot open MaxRace that way. Connect the computer and the phone to the same Wi-Fi.`;
+          if (!ads.length) urls = "No network found. Connect this computer to the boat or home Wi-Fi first.";
           dialog.showMessageBox(win, { type: "info", title: "MaxRace on other devices", message: "On a tablet or phone on the same network, open:", detail: urls });
         }},
         { role: "toggleDevTools" },

@@ -3542,11 +3542,15 @@ $("profImport").onchange=function(e){
 if(LOCAL||NATIVE){
   $("nmBridgeRow").hidden=true;
   $("nmHelp").textContent="NMEA 0183 from your gateway or instrument system: enter its IP address and port. For UDP broadcast the IP is optional."+(NATIVE?" The phone must be on the boat's Wi-Fi. TCP is the safest choice on iPhone.":"");
-  if(LOCAL)fetch("/info").then(function(r){return r.json();}).then(function(j){
-    if(!j.addresses||!j.addresses.length)return;
-    $("nmShare").textContent="Tablets and phones on the same network can open: "+j.addresses.map(function(a){return "http://"+a+":"+j.port;}).join("  ·  ");
-    $("nmShare").hidden=false;
-  }).catch(function(){});
+  // the address for phones, read again every 10 s so it follows the computer when it changes network
+  function phoneAddr(){fetch("/info").then(function(r){return r.json();}).then(function(j){
+    var ad=j.addresses||[],hot=ad.filter(function(a){return /^172\.20\.10\./.test(a);}),wifi=ad.filter(function(a){return !/^172\.20\.10\./.test(a);});
+    var t=wifi.length?"Phones and tablets on the same Wi-Fi can open: "+wifi.map(function(a){return "http://"+a+":"+j.port;}).join("  ·  "):"";
+    if(hot.length)t+=(t?"  ":"")+"This computer is on the iPhone hotspot ("+hot[0]+"): the phone cannot open MaxRace that way. Connect the computer and the phone to the same Wi-Fi (boat or home) and the 192.168… address appears here.";
+    if(!ad.length)t="This computer is not on any network. Connect it to the boat or home Wi-Fi to open MaxRace on the phone.";
+    $("nmShare").textContent=t;$("nmShare").hidden=false;
+  }).catch(function(){});}
+  if(LOCAL){phoneAddr();setInterval(phoneAddr,10000);}
   var src0=load("src",null),nm0=load("nmea",{});
   // first start: a single screen asking only for IP and port
   // another screen (phone, tablet) of a program already reading the instruments: use that source, no questions

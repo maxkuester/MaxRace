@@ -1,0 +1,5 @@
+node_modules/
+dist/
+fonts/
+# built by scripts/build-native-web.js before every cap sync
+native/www/

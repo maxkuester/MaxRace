@@ -1,0 +1,14 @@
+{
+  "appId": "com.maxrace.dash",
+  "appName": "MaxRace",
+  "webDir": "native/www",
+  "backgroundColor": "#000000",
+  "ios": {
+    "path": "native/ios",
+    "contentInset": "never",
+    "scrollEnabled": false
+  },
+  "android": {
+    "path": "native/android"
+  }
+}

@@ -1,0 +1,15 @@
+// Puts the dashboard into native/www, the folder Capacitor copies into the iPhone and Android apps.
+// Run by "npm run cap:sync"; the fonts come from scripts/fetch-fonts.js when it has run before.
+"use strict";
+const fs = require("fs");
+const path = require("path");
+
+const root = path.join(__dirname, "..");
+const out = path.join(root, "native", "www");
+fs.rmSync(out, { recursive: true, force: true });
+fs.mkdirSync(out, { recursive: true });
+fs.copyFileSync(path.join(root, "maxrace.html"), path.join(out, "index.html"));
+fs.copyFileSync(path.join(root, "build", "icon.png"), path.join(out, "icon.png"));
+const fonts = path.join(root, "fonts");
+if (fs.existsSync(fonts)) fs.cpSync(fonts, path.join(out, "fonts"), { recursive: true });
+console.log("native/www ready" + (fs.existsSync(fonts) ? " (with offline fonts)" : " (no offline fonts: run npm run fonts first)"));

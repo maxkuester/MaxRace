@@ -10,9 +10,15 @@
     "start": "electron .",
     "fonts": "node scripts/fetch-fonts.js",
     "dist": "node scripts/fetch-fonts.js && electron-builder --publish never",
-    "server": "node server.js"
+    "server": "node server.js",
+    "cap:web": "node scripts/build-native-web.js",
+    "cap:sync": "node scripts/fetch-fonts.js && node scripts/build-native-web.js && cap sync"
   },
   "devDependencies": {
+    "@capacitor/android": "8.6.0",
+    "@capacitor/cli": "8.6.0",
+    "@capacitor/core": "8.6.0",
+    "@capacitor/ios": "8.6.0",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8"
   },

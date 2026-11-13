@@ -27,6 +27,16 @@ The `ios` folder is the same dashboard as a native app. The app connects to the 
 - Every push builds `MaxRace-iOS-unsigned.ipa` in the "latest" release. It installs with a free Apple ID through Sideloadly or AltStore and runs for 7 days before it has to be installed again.
 - With an Apple Developer account, add the secrets listed at the top of `.github/workflows/ios.yml`. Every push then also goes to TestFlight.
 
+## iPhone, iPad and Android (Capacitor)
+
+`native/` is the same dashboard as a Capacitor app for iPhone, iPad and Android, with one native plugin
+(`MaxRace`) that opens the NMEA 0183 source over TCP/UDP, reads the phone GPS and compass, and saves races.
+The page talks to it with the same commands as the earlier iOS app (`ios/`), which stays until this one is tested on the water.
+
+- Android: the socket is bound to the Wi-Fi, so it works on a boat network without internet. Races go to Documents › MaxRace › Races; "PDF / Share" makes the report PDF through the Android print dialog.
+- Every push to `main` or a `feat/capacitor-*` branch builds `MaxRace-Android-debug.apk` and `MaxRace-iOS-cap-unsigned.ipa` (Actions › Build MaxRace mobile › Artifacts).
+- On your own computer (Xcode for iOS, Android Studio for Android): `npm install`, then `npm run cap:sync`, then open `native/ios/App/App.xcodeproj` or the `native/android` folder.
+
 ## Get the installer without installing anything (GitHub)
 
 1. Create a private repository on GitHub and upload this whole folder (including the hidden `.github` folder).

@@ -1,0 +1,303 @@
+package com.maxrace.dash;
+
+import android.Manifest;
+import android.content.ContentResolver;
+import android.content.ContentValues;
+import android.content.Context;
+import android.content.Intent;
+import android.hardware.GeomagneticField;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.net.Uri;
+import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.print.PrintAttributes;
+import android.print.PrintManager;
+import android.provider.MediaStore;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.Toast;
+
+import androidx.core.content.FileProvider;
+
+import com.getcapacitor.JSArray;
+import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+
+/**
+ * The bridge between the dashboard page and Android. Same commands as the iPhone app:
+ * page -> app: Capacitor.nativePromise("MaxRace", "post", {cmd, ...})
+ *   connect {proto, host, port} / disconnect, gps {on}, save {folder, files, pdf}, share {name, text}, pdfShare {name, html}
+ * app -> page: event "mrn" {fn, arg}; the page calls MRN[fn](arg): lines, status, gps, gpsError, saved
+ */
+@CapacitorPlugin(
+    name = "MaxRace",
+    permissions = {
+        @Permission(alias = "location", strings = { Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION })
+    }
+)
+public class MaxRacePlugin extends Plugin implements LocationListener, SensorEventListener {
+    private static final double KN = 1.943844;
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final List<String> pending = new ArrayList<>();
+    private NmeaSource nmea;
+    private boolean gpsOn = false;
+    private double heading = -1, declination = 0;
+    private final float[] rot = new float[9], ori = new float[3];
+    private WebView printView;          // kept until the print dialog has read it
+
+    @Override
+    public void load() {
+        nmea = new NmeaSource(getContext(), new NmeaSource.Listener() {
+            @Override public void onLines(List<String> lines) { synchronized (pending) { pending.addAll(lines); } }
+            @Override public void onStatus(boolean connected, String error) {
+                JSObject o = new JSObject();
+                o.put("connected", connected);
+                if (error != null) o.put("error", error);
+                main.post(() -> send("status", o));
+            }
+        });
+        // sentences go to the page in small batches, ten times a second
+        main.postDelayed(new Runnable() {
+            @Override public void run() { flush(); main.postDelayed(this, 100); }
+        }, 100);
+    }
+
+    private void flush() {
+        JSArray a;
+        synchronized (pending) {
+            if (pending.isEmpty()) return;
+            a = new JSArray();
+            for (String s : pending) a.put(s);
+            pending.clear();
+        }
+        send("lines", a);
+    }
+
+    private void send(String fn, Object arg) {
+        JSObject o = new JSObject();
+        o.put("fn", fn);
+        o.put("arg", arg);
+        notifyListeners("mrn", o);
+    }
+
+    @PluginMethod
+    public void post(PluginCall call) {
+        JSObject b = call.getData();
+        String cmd = b.getString("cmd", "");
+        switch (cmd) {
+            case "connect":
+                nmea.connect(b.getString("proto", "tcp"), b.getString("host", ""), b.getInteger("port", 0));
+                break;
+            case "disconnect":
+                nmea.stop();
+                synchronized (pending) { pending.clear(); }
+                break;
+            case "gps":
+                if (b.getBool("on", false)) {
+                    if (getPermissionState("location") != PermissionState.GRANTED) {
+                        requestPermissionForAlias("location", call, "gpsPermission");
+                        return;
+                    }
+                    startGps();
+                } else stopGps();
+                break;
+            case "save":
+                main.post(() -> saveRace(b));
+                break;
+            case "share":
+                main.post(() -> share(b.getString("name", "MaxRace.txt"), b.getString("text", "").getBytes(StandardCharsets.UTF_8)));
+                break;
+            case "pdfShare":
+                main.post(() -> printPdf(b.getString("name", "MaxRace report.pdf"), b.getString("html", "")));
+                break;
+            default:
+                break;
+        }
+        call.resolve();
+    }
+
+    @PermissionCallback
+    private void gpsPermission(PluginCall call) {
+        if (getPermissionState("location") == PermissionState.GRANTED) startGps();
+        else send("gpsError", "Location access is off for MaxRace. Turn it on in Settings › Apps › MaxRace › Permissions › Location.");
+        call.resolve();
+    }
+
+    // ---------- phone GPS and compass ----------
+
+    @SuppressWarnings("MissingPermission")
+    private void startGps() {
+        main.post(() -> {
+            gpsOn = true;
+            LocationManager lm = (LocationManager) getContext().getSystemService(Context.LOCATION_SERVICE);
+            if (lm == null || !lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                send("gpsError", "The GPS is off. Turn on Location in the Android quick settings.");
+                return;
+            }
+            lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0f, this, Looper.getMainLooper());
+            SensorManager sm = (SensorManager) getContext().getSystemService(Context.SENSOR_SERVICE);
+            Sensor rv = sm != null ? sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR) : null;
+            if (rv != null) sm.registerListener(this, rv, SensorManager.SENSOR_DELAY_GAME);
+        });
+    }
+
+    private void stopGps() {
+        gpsOn = false;
+        LocationManager lm = (LocationManager) getContext().getSystemService(Context.LOCATION_SERVICE);
+        if (lm != null) lm.removeUpdates(this);
+        SensorManager sm = (SensorManager) getContext().getSystemService(Context.SENSOR_SERVICE);
+        if (sm != null) sm.unregisterListener(this);
+        heading = -1;
+    }
+
+    @Override
+    public void onLocationChanged(Location l) {
+        if (!gpsOn) return;
+        declination = new GeomagneticField((float) l.getLatitude(), (float) l.getLongitude(), (float) l.getAltitude(), l.getTime()).getDeclination();
+        JSObject o = new JSObject();
+        o.put("lat", l.getLatitude());
+        o.put("lon", l.getLongitude());
+        o.put("t", l.getTime());
+        if (l.hasAccuracy()) o.put("acc", l.getAccuracy());
+        if (l.hasSpeed()) o.put("sog", l.getSpeed() * KN);
+        if (l.hasBearing()) o.put("cog", l.getBearing());
+        if (heading >= 0) o.put("hdg", heading);
+        send("gps", o);
+    }
+
+    @Override public void onStatusChanged(String provider, int status, Bundle extras) {}
+    @Override public void onProviderEnabled(String provider) {}
+    @Override public void onProviderDisabled(String provider) {
+        if (gpsOn) send("gpsError", "The GPS was turned off.");
+    }
+
+    @Override
+    public void onSensorChanged(SensorEvent e) {
+        SensorManager.getRotationMatrixFromVector(rot, e.values);
+        SensorManager.getOrientation(rot, ori);
+        double h = Math.toDegrees(ori[0]) + declination;     // magnetic -> true, top edge of the phone
+        heading = ((h % 360) + 360) % 360;
+    }
+
+    @Override public void onAccuracyChanged(Sensor s, int a) {}
+
+    // ---------- races in Documents › MaxRace › Races ----------
+
+    private static String clean(String s) {
+        String t = (s == null ? "" : s).replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]+", "").trim();
+        while (t.startsWith(".")) t = t.substring(1);
+        return t.length() > 120 ? t.substring(0, 120) : t;
+    }
+
+    private static String mime(String name) {
+        String n = name.toLowerCase();
+        if (n.endsWith(".csv")) return "text/csv";
+        if (n.endsWith(".gpx")) return "application/gpx+xml";
+        if (n.endsWith(".html") || n.endsWith(".htm")) return "text/html";
+        if (n.endsWith(".pdf")) return "application/pdf";
+        return "text/plain";
+    }
+
+    private void saveRace(JSObject b) {
+        String folder = clean(b.getString("folder", ""));
+        if (folder.isEmpty()) folder = "race";
+        String rel = Environment.DIRECTORY_DOCUMENTS + "/MaxRace/Races/" + folder;
+        ContentResolver cr = getContext().getContentResolver();
+        try {
+            JSONObject files = b.getJSObject("files", new JSObject());
+            Iterator<String> it = files.keys();
+            while (it.hasNext()) {
+                String name = it.next(), n = clean(name);
+                if (n.isEmpty()) continue;
+                ContentValues v = new ContentValues();
+                v.put(MediaStore.MediaColumns.DISPLAY_NAME, n);
+                v.put(MediaStore.MediaColumns.MIME_TYPE, mime(n));
+                v.put(MediaStore.MediaColumns.RELATIVE_PATH, rel);
+                Uri u = cr.insert(MediaStore.Files.getContentUri("external"), v);
+                if (u == null) throw new Exception("could not create " + n);
+                try (OutputStream os = cr.openOutputStream(u)) {
+                    os.write(files.optString(name, "").getBytes(StandardCharsets.UTF_8));
+                }
+            }
+        } catch (Exception e) {
+            JSObject o = new JSObject();
+            o.put("ok", false);
+            o.put("error", e.getMessage());
+            send("saved", o);
+            return;
+        }
+        // no silent HTML-to-PDF on Android: the report is saved as HTML, "PDF / Share" prints it to PDF
+        JSObject o = new JSObject();
+        o.put("ok", true);
+        o.put("dir", "Files › Documents › MaxRace › Races › " + folder);
+        o.put("pdf", false);
+        send("saved", o);
+    }
+
+    private void share(String name, byte[] data) {
+        String n = clean(name);
+        if (n.isEmpty()) n = "MaxRace.txt";
+        try {
+            File dir = new File(getContext().getCacheDir(), "share");
+            dir.mkdirs();
+            File f = new File(dir, n);
+            try (FileOutputStream fo = new FileOutputStream(f)) { fo.write(data); }
+            Uri u = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", f);
+            Intent i = new Intent(Intent.ACTION_SEND);
+            i.setType(mime(n));
+            i.putExtra(Intent.EXTRA_STREAM, u);
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            getActivity().startActivity(Intent.createChooser(i, n));
+        } catch (Exception e) {
+            Toast.makeText(getContext(), "Could not share the file: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // the report through the Android print dialog, where "Save as PDF" makes the file
+    private void printPdf(String name, String html) {
+        String job = name.replaceAll("\\.pdf$", "");
+        WebView w = new WebView(getActivity());
+        printView = w;
+        w.setWebViewClient(new WebViewClient() {
+            @Override public void onPageFinished(WebView view, String url) {
+                PrintManager pm = (PrintManager) getActivity().getSystemService(Context.PRINT_SERVICE);
+                if (pm == null) return;
+                PrintAttributes attrs = new PrintAttributes.Builder().setMediaSize(PrintAttributes.MediaSize.ISO_A4).build();
+                pm.print(job, view.createPrintDocumentAdapter(job), attrs);
+            }
+        });
+        w.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        main.removeCallbacksAndMessages(null);
+        nmea.stop();
+        stopGps();
+    }
+}

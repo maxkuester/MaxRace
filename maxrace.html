@@ -869,9 +869,12 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
 var LOCAL=location.protocol==="http:"&&!/claude/.test(location.host);   // served by the MaxRace program (plain http on the boat network)
 // HOSTED: the public web version (GitHub Pages), opened in any browser: phone GPS, simulator, no instruments
 var HOSTED=/github\.io$/.test(location.hostname);
-// NATIVE: inside the MaxRace iPhone/iPad app; the app opens TCP/UDP, reads the phone GPS and saves files
-var NATIVE=!!(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.mr);
-function nat(o){try{window.webkit.messageHandlers.mr.postMessage(o);}catch(e){}}
+// NATIVE: inside the MaxRace phone app; the app opens TCP/UDP, reads the phone GPS and saves files.
+// CAP: the Capacitor app (iPhone, iPad, Android), plugin "MaxRace"; otherwise the earlier iOS app (message handler "mr")
+var CAP=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+var ANDROID=CAP&&window.Capacitor.getPlatform()==="android";
+var NATIVE=CAP||!!(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.mr);
+function nat(o){try{if(CAP)window.Capacitor.nativePromise("MaxRace","post",o).catch(function(){});else window.webkit.messageHandlers.mr.postMessage(o);}catch(e){}}
 if(LOCAL||NATIVE||HOSTED){var fl=document.createElement("link");fl.rel="stylesheet";fl.href="fonts/fonts.css";document.head.insertBefore(fl,document.head.firstChild);}
 var KN=1.943844, D2R=Math.PI/180, R2D=180/Math.PI;
 function wrap360(a){return ((a%360)+360)%360;}
@@ -1824,6 +1827,8 @@ window.MRN={
   gpsError:function(t){gpsMsg(t,"err");if(source==="gps")setPill("err","No GPS");},
   saved:function(j){raceSaved(j);}
 };
+// the Capacitor app sends the same calls as one event: {fn, arg}
+if(CAP)window.Capacitor.addListener("MaxRace","mrn",function(d){var f=d&&window.MRN[d.fn];if(f)f(d.arg);});
 
 /* phone or tablet GPS as the only data source: position, SOG, COG; wind typed in by hand */
 var gpsWatch=null,gpsLive=false,manWind=load("manwind",{twd:null,tws:null,hdg:false});
@@ -3048,7 +3053,7 @@ $("repAll").onclick=function(){setRepTrim(false);};
 $("repDir").onclick=$("rcDir").onclick=function(){fetch(location.origin+"/race/reveal").catch(function(){});};
 if(/claude/.test(location.host)){$("repCsv").hidden=true;$("repHtml").hidden=true;}
 if(LOCAL){$("rcDir").hidden=false;$("rcDiskNote").hidden=false;$("repDir").hidden=false;}
-if(NATIVE){$("rcDiskNote").hidden=false;$("rcDiskNote").textContent="Every finished race is also saved on this device: Files app › On My iPhone (or iPad) › MaxRace › Races, with the track (CSV and GPX) and the report (HTML and PDF).";$("repPrint").textContent="PDF / Share";$("repCsv").textContent="Share CSV";$("repHtml").hidden=true;}
+if(NATIVE){$("rcDiskNote").hidden=false;$("rcDiskNote").textContent=ANDROID?"Every finished race is also saved on this device: Files › Documents › MaxRace › Races, with the track (CSV and GPX) and the report (HTML). \"PDF / Share\" makes the PDF.":"Every finished race is also saved on this device: Files app › On My iPhone (or iPad) › MaxRace › Races, with the track (CSV and GPX) and the report (HTML and PDF).";$("repPrint").textContent="PDF / Share";$("repCsv").textContent="Share CSV";$("repHtml").hidden=true;}
 renderRec();
 
 
@@ -3541,7 +3546,7 @@ $("profImport").onchange=function(e){
 // inside the app: no bridge field, show the address for tablets, and reconnect to the last source on start
 if(LOCAL||NATIVE){
   $("nmBridgeRow").hidden=true;
-  $("nmHelp").textContent="NMEA 0183 from your gateway or instrument system: enter its IP address and port. For UDP broadcast the IP is optional."+(NATIVE?" The phone must be on the boat's Wi-Fi. TCP is the safest choice on iPhone.":"");
+  $("nmHelp").textContent="NMEA 0183 from your gateway or instrument system: enter its IP address and port. For UDP broadcast the IP is optional."+(NATIVE?" The phone must be on the boat's Wi-Fi. TCP is the safest choice on a phone.":"");
   // the address for phones, read again every 10 s so it follows the computer when it changes network
   function phoneAddr(){fetch("/info").then(function(r){return r.json();}).then(function(j){
     var ad=j.addresses||[],hot=ad.filter(function(a){return /^172\.20\.10\./.test(a);}),wifi=ad.filter(function(a){return !/^172\.20\.10\./.test(a);});

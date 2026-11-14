@@ -14,6 +14,7 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -52,12 +53,18 @@ import java.util.List;
  * The bridge between the dashboard page and Android. Same commands as the iPhone app:
  * page -> app: Capacitor.nativePromise("MaxRace", "post", {cmd, ...})
  *   connect {proto, host, port} / disconnect, gps {on}, save {folder, files, pdf}, share {name, text}, pdfShare {name, html}
- * app -> page: event "mrn" {fn, arg}; the page calls MRN[fn](arg): lines, status, gps, gpsError, saved
+ *   recStart {folder, boat} / recStop {discard} / recRead {folder}   the race log written by the app (RaceLog)
+ * app -> page: event "mrn" {fn, arg}; the page calls MRN[fn](arg): lines, status, gps, gpsError, saved, rec, recLog
+ *
+ * While a race is recorded every sentence and GPS fix goes to RaceLog and RecordService keeps the app
+ * running with the screen off. While the app is not in front the page gets no sentences (its WebView is
+ * paused anyway); at the finish it reads the log back to fill what it missed.
  */
 @CapacitorPlugin(
     name = "MaxRace",
     permissions = {
-        @Permission(alias = "location", strings = { Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION })
+        @Permission(alias = "location", strings = { Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION }),
+        @Permission(alias = "notifications", strings = { "android.permission.POST_NOTIFICATIONS" })
     }
 )
 public class MaxRacePlugin extends Plugin implements LocationListener, SensorEventListener {
@@ -69,12 +76,17 @@ public class MaxRacePlugin extends Plugin implements LocationListener, SensorEve
     private double heading = -1, declination = 0;
     private final float[] rot = new float[9], ori = new float[3];
     private WebView printView;          // kept until the print dialog has read it
+    private volatile boolean front = true;   // the app is in front: sentences go to the page
 
     @Override
     public void load() {
         nmea = new NmeaSource(getContext(), new NmeaSource.Listener() {
-            @Override public void onLines(List<String> lines) { synchronized (pending) { pending.addAll(lines); } }
+            @Override public void onLines(List<String> lines) {
+                RaceLog.lines(lines);
+                if (front) synchronized (pending) { pending.addAll(lines); }
+            }
             @Override public void onStatus(boolean connected, String error) {
+                RaceLog.note(connected ? "source connected" : "source not connected: " + error);
                 JSObject o = new JSObject();
                 o.put("connected", connected);
                 if (error != null) o.put("error", error);
@@ -135,6 +147,20 @@ public class MaxRacePlugin extends Plugin implements LocationListener, SensorEve
             case "pdfShare":
                 main.post(() -> printPdf(b.getString("name", "MaxRace report.pdf"), b.getString("html", "")));
                 break;
+            case "recStart":
+                if (Build.VERSION.SDK_INT >= 33 && getPermissionState("notifications") != PermissionState.GRANTED) {
+                    // without it the service still runs, only its notification is hidden
+                    requestPermissionForAlias("notifications", call, "recPermission");
+                    return;
+                }
+                recStart(b);
+                break;
+            case "recStop":
+                recStop(b.getBool("discard", false));
+                break;
+            case "recRead":
+                recRead(clean(b.getString("folder", "")));
+                break;
             default:
                 break;
         }
@@ -146,6 +172,65 @@ public class MaxRacePlugin extends Plugin implements LocationListener, SensorEve
         if (getPermissionState("location") == PermissionState.GRANTED) startGps();
         else send("gpsError", "Location access is off for MaxRace. Turn it on in Settings › Apps › MaxRace › Permissions › Location.");
         call.resolve();
+    }
+
+    @PermissionCallback
+    private void recPermission(PluginCall call) {
+        recStart(call.getData());
+        call.resolve();
+    }
+
+    // ---------- race log written by the app, also with the screen off ----------
+
+    private void recStart(JSObject b) {
+        String folder = clean(b.getString("folder", ""));
+        if (folder.isEmpty()) folder = "race";
+        JSObject o = new JSObject();
+        try {
+            RaceLog.start(getContext(), folder, b.getString("boat", ""));
+            RecordService.start(getContext());
+            o.put("on", true);
+            o.put("folder", folder);
+        } catch (Exception e) {
+            o.put("on", false);
+            o.put("error", e.getMessage() != null ? e.getMessage() : e.toString());
+        }
+        main.post(() -> send("rec", o));
+    }
+
+    private void recStop(boolean discard) {
+        String folder = RaceLog.folder();
+        java.io.File f = RaceLog.stop();
+        RecordService.stop(getContext());
+        if (folder == null) return;
+        if (discard) RaceLog.delete(getContext(), folder);
+        else new Thread(() -> RaceLog.publish(getContext(), f, folder), "maxrace-log-copy").start();
+    }
+
+    private void recRead(String folder) {
+        new Thread(() -> RaceLog.read(getContext(), folder, 4000, (lines, done, error) -> {
+            JSObject o = new JSObject();
+            JSArray a = new JSArray();
+            for (String s : lines) a.put(s);
+            o.put("lines", a);
+            o.put("done", done);
+            if (error != null) o.put("error", error);
+            main.post(() -> send("recLog", o));
+        }), "maxrace-log-read").start();
+    }
+
+    @Override
+    protected void handleOnPause() {
+        super.handleOnPause();
+        front = false;
+        synchronized (pending) { pending.clear(); }
+        RaceLog.flush(true);
+    }
+
+    @Override
+    protected void handleOnResume() {
+        super.handleOnResume();
+        front = true;
     }
 
     // ---------- phone GPS and compass ----------
@@ -187,7 +272,8 @@ public class MaxRacePlugin extends Plugin implements LocationListener, SensorEve
         if (l.hasSpeed()) o.put("sog", l.getSpeed() * KN);
         if (l.hasBearing()) o.put("cog", l.getBearing());
         if (heading >= 0) o.put("hdg", heading);
-        send("gps", o);
+        RaceLog.gps(System.currentTimeMillis(), o.toString());
+        if (front) send("gps", o);
     }
 
     @Override public void onStatusChanged(String provider, int status, Bundle extras) {}
@@ -297,6 +383,9 @@ public class MaxRacePlugin extends Plugin implements LocationListener, SensorEve
     @Override
     protected void handleOnDestroy() {
         main.removeCallbacksAndMessages(null);
+        // the app is closed for good: the log so far stays on the device, the page resumes it when reopened
+        RaceLog.stop();
+        RecordService.stop(getContext());
         nmea.stop();
         stopGps();
     }

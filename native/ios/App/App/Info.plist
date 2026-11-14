@@ -3,7 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>MaxRace uses the GPS for the boat position, speed and course when there are no instruments, and for the race track.</string>
+	<string>MaxRace uses the GPS for the boat position, speed and course when there are no instruments, and for the race track. While a race is recorded it keeps MaxRace running with the screen off, so the whole race is logged.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>MaxRace reads the boat instruments (NMEA 0183) from the gateway on the boat's Wi-Fi.</string>
 	<key>UIFileSharingEnabled</key>

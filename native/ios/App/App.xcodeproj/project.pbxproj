@@ -20,6 +20,7 @@
 		A1B2C3D4E5F6000000000004 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000003 /* MainViewController.swift */; };
 		A1B2C3D4E5F6000000000006 /* NMEASource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000005 /* NMEASource.swift */; };
 		A1B2C3D4E5F6000000000008 /* PDFMaker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000007 /* PDFMaker.swift */; };
+		A1B2C3D4E5F6000000000012 /* RaceLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000011 /* RaceLog.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -38,6 +39,7 @@
 		A1B2C3D4E5F6000000000003 /* MainViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000005 /* NMEASource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NMEASource.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000007 /* PDFMaker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFMaker.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000011 /* RaceLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RaceLog.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -79,6 +81,7 @@
 				A1B2C3D4E5F6000000000003 /* MainViewController.swift */,
 				A1B2C3D4E5F6000000000005 /* NMEASource.swift */,
 				A1B2C3D4E5F6000000000007 /* PDFMaker.swift */,
+				A1B2C3D4E5F6000000000011 /* RaceLog.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -176,6 +179,7 @@
 				A1B2C3D4E5F6000000000004 /* MainViewController.swift in Sources */,
 				A1B2C3D4E5F6000000000006 /* NMEASource.swift in Sources */,
 				A1B2C3D4E5F6000000000008 /* PDFMaker.swift in Sources */,
+				A1B2C3D4E5F6000000000012 /* RaceLog.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

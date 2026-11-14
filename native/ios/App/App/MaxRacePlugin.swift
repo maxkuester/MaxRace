@@ -6,7 +6,17 @@
 //   {cmd:"save", folder, files:{name:text}, pdf:"x.html"}      finished race -> Files app (+ PDF)
 //   {cmd:"share", name, text}                                  CSV, GPX… -> share sheet
 //   {cmd:"pdfShare", name, html}                               report PDF -> share sheet
-// App -> page: event "mrn" {fn, arg}; the page calls MRN[fn](arg): lines, status, gps, gpsError, saved
+//   {cmd:"recStart", folder, boat} / {cmd:"recStop", discard}  race log written by the app (RaceLog)
+//   {cmd:"recRead", folder}                                    the log back to the page, in chunks
+// App -> page: event "mrn" {fn, arg}; the page calls MRN[fn](arg): lines, status, gps, gpsError, saved, rec, recLog
+//
+// Recording with the screen off: iOS suspends an app in the background unless it has a reason to run.
+// While a race is recorded MaxRace keeps the location updates on with background location allowed
+// (UIBackgroundModes "location", blue location indicator), which keeps the app and its NMEA socket
+// running; sentences and GPS fixes go to RaceLog. The page is not fed while the app is in the background
+// (iOS suspends the WebView anyway); at the finish it reads the log back to fill what it missed.
+// Limits: it needs location access ("While Using" is enough); if the user turns it off, force-quits the
+// app from the app switcher, or iOS ends it for lack of memory, recording stops until the app is opened again.
 import UIKit
 import Capacitor
 import CoreLocation
@@ -26,10 +36,19 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
     private var pending: [String] = []
     private var flushTimer: Timer?
     private var pdfMakers: [PDFMaker] = []
+    private let raceLog = RaceLog()
+    private var recording = false
+    private var inFront = true
+    private var bgTask: UIBackgroundTaskIdentifier = .invalid
 
     override public func load() {
-        nmea.onLines = { [weak self] lines in self?.pending.append(contentsOf: lines) }
+        nmea.onLines = { [weak self] lines in
+            guard let self = self else { return }
+            self.raceLog.lines(lines)
+            if self.inFront { self.pending.append(contentsOf: lines) }
+        }
         nmea.onStatus = { [weak self] ok, err in
+            self?.raceLog.note(ok ? "source connected" : "source not connected: \(err ?? "")")
             var o: [String: Any] = ["connected": ok]
             if let e = err { o["error"] = e }
             self?.send("status", o)
@@ -49,6 +68,22 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
         }
         NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             UIApplication.shared.isIdleTimerDisabled = true
+        }
+        NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self = self else { return }
+            self.inFront = false
+            self.pending.removeAll()
+            if self.recording {
+                self.raceLog.note("app in background")
+                self.raceLog.flush()
+                self.holdBackground()
+            }
+        }
+        NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self = self else { return }
+            self.inFront = true
+            if self.recording { self.raceLog.note("app in front") }
+            self.endBackgroundTask()
         }
     }
 
@@ -88,6 +123,17 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
         case "share":
             let text = b["text"] as? String ?? ""
             shareFile(name: b["name"] as? String ?? "MaxRace.txt", data: Data(text.utf8))
+        case "recStart":
+            recStart(folder: clean(b["folder"] as? String ?? ""), boat: b["boat"] as? String ?? "")
+        case "recStop":
+            recStop(discard: (b["discard"] as? NSNumber)?.boolValue ?? false)
+        case "recRead":
+            let folder = clean(b["folder"] as? String ?? "")
+            raceLog.read(folder: folder, chunk: 4000) { [weak self] lines, done, err in
+                var o: [String: Any] = ["lines": lines, "done": done]
+                if let e = err { o["error"] = e }
+                DispatchQueue.main.async { self?.send("recLog", o) }
+            }
         case "pdfShare":
             let name = b["name"] as? String ?? "MaxRace report.pdf"
             makePdf(html: b["html"] as? String ?? "") { [weak self] data in
@@ -100,14 +146,76 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
         }
     }
 
+    // MARK: race log written by the app, also with the screen off
+
+    private func recStart(folder f: String, boat: String) {
+        let folder = f.isEmpty ? "race" : f
+        do {
+            try raceLog.start(folder: folder, boat: boat)
+        } catch {
+            send("rec", ["on": false, "error": error.localizedDescription])
+            return
+        }
+        recording = true
+        var o: [String: Any] = ["on": true, "folder": folder]
+        if let w = keepRunning() { o["warn"] = w }
+        send("rec", o)
+    }
+
+    private func recStop(discard: Bool) {
+        recording = false
+        raceLog.stop(discard: discard)
+        if let loc = loc {
+            loc.allowsBackgroundLocationUpdates = false
+            if !gpsOn { loc.stopUpdatingLocation() }
+        }
+        endBackgroundTask()
+    }
+
+    /// Location updates allowed in the background keep the app (and the NMEA socket) running with the screen off.
+    /// Returns a warning for the page when iOS will not allow it.
+    @discardableResult
+    private func keepRunning() -> String? {
+        guard recording, let loc = loc else { return nil }
+        switch loc.authorizationStatus {
+        case .notDetermined:
+            loc.requestWhenInUseAuthorization()       // continues in locationManagerDidChangeAuthorization
+            return nil
+        case .denied, .restricted:
+            raceLog.note("location access off: no background recording")
+            return "Location access is off for MaxRace, so iOS stops the recording when the screen goes off or you leave the app. Turn it on in Settings › Privacy & Security › Location Services › MaxRace (While Using is enough), or keep MaxRace in front with the screen on."
+        default:
+            break
+        }
+        loc.allowsBackgroundLocationUpdates = true
+        loc.showsBackgroundLocationIndicator = true
+        loc.pausesLocationUpdatesAutomatically = false
+        loc.startUpdatingLocation()
+        return nil
+    }
+
+    // a few more seconds to write the log when the app goes to the background without location access
+    private func holdBackground() {
+        guard bgTask == .invalid else { return }
+        bgTask = UIApplication.shared.beginBackgroundTask(withName: "MaxRace race log") { [weak self] in
+            self?.raceLog.note("iOS suspends the app")
+            self?.raceLog.flush()
+            self?.endBackgroundTask()
+        }
+    }
+
+    private func endBackgroundTask() {
+        if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask); bgTask = .invalid }
+    }
+
     // MARK: phone GPS
 
     private func setGps(_ on: Bool) {
         guard let loc = loc else { return }
         gpsOn = on
         if !on {
-            loc.stopUpdatingLocation()
             loc.stopUpdatingHeading()
+            if !recording { loc.stopUpdatingLocation() }     // still needed to keep a recording alive
             return
         }
         switch loc.authorizationStatus {
@@ -124,6 +232,12 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
     }
 
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        if recording {
+            if let w = keepRunning() { send("rec", ["on": true, "folder": raceLog.folder ?? "", "warn": w]) }
+            else if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
+                send("rec", ["on": true, "folder": raceLog.folder ?? ""])
+            }
+        }
         guard gpsOn else { return }
         switch manager.authorizationStatus {
         case .denied, .restricted:
@@ -137,7 +251,7 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
     }
 
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard gpsOn, let l = locations.last, l.horizontalAccuracy >= 0 else { return }
+        guard gpsOn, let l = locations.last, l.horizontalAccuracy >= 0 else { return }   // NMEA source: updates only keep the app running
         var o: [String: Any] = [
             "lat": l.coordinate.latitude, "lon": l.coordinate.longitude,
             "acc": l.horizontalAccuracy, "t": l.timestamp.timeIntervalSince1970 * 1000,
@@ -145,7 +259,8 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
         if l.speed >= 0 { o["sog"] = l.speed * 1.943844 }     // m/s -> knots
         if l.course >= 0 { o["cog"] = l.course }
         if heading >= 0 { o["hdg"] = heading }
-        send("gps", o)
+        if recording, let j = try? JSONSerialization.data(withJSONObject: o), let s = String(data: j, encoding: .utf8) { raceLog.gps(s) }
+        if inFront { send("gps", o) }
     }
 
     public func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {

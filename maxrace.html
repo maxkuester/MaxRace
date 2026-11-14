@@ -376,6 +376,10 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 /* ---- race recording and report ---- */
 .racebtn.rec{color:#fff;background:#b3261e;font-family:var(--num);font-weight:700;letter-spacing:.03em}
 .recon{color:#e5534b}
+.recwarn{position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:50;width:min(640px,calc(100vw - 32px));display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:6px;background:#b3261e;color:#fff;font-size:.9rem;line-height:1.35;box-shadow:0 4px 18px rgba(0,0,0,.5)}
+.recwarn[hidden]{display:none}
+.recwarn span{flex:1}
+.recwarn button{flex:none;min-height:32px;padding:2px 10px;border:1px solid #fff;border-radius:5px;background:transparent;color:#fff;font-weight:700}
 .racelist li span{color:var(--muted);font-size:.8rem}
 dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
 .repwrap{display:flex;flex-direction:column;height:100%}
@@ -408,6 +412,7 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
 </style>
 </head>
 <body>
+<div class="recwarn" id="recWarn" role="alert" hidden><span id="recWarnText"></span><button type="button" id="recWarnOk">OK</button></div>
 <div class="app">
   <header class="bar">
     <div class="mark" id="boatMark" hidden></div>
@@ -617,6 +622,7 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
     <div id="rcLive" hidden>
       <h3 class="recon">● Recording</h3>
       <p id="rcState"></p>
+      <p class="msg" id="rcNat"></p>
       <p>Roundings of the course marks are logged by themselves. Without a course, press "Log mark" at each rounding so the report can split the legs.</p>
       <div class="row"><button class="btn" id="rcMark">Log mark</button><button class="btn primary" id="rcFinish">Finish race</button><button class="btn" id="rcDiscard">Discard</button></div>
     </div>
@@ -875,6 +881,9 @@ var CAP=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor
 var ANDROID=CAP&&window.Capacitor.getPlatform()==="android";
 var NATIVE=CAP||!!(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.mr);
 function nat(o){try{if(CAP)window.Capacitor.nativePromise("MaxRace","post",o).catch(function(){});else window.webkit.messageHandlers.mr.postMessage(o);}catch(e){}}
+// NATREC: the app itself writes the race log (every NMEA sentence, GPS fixes) and keeps running with the screen off;
+// elsewhere the recording lives in this page and stops when the browser or the system suspends it
+var NATREC=CAP;
 if(LOCAL||NATIVE||HOSTED){var fl=document.createElement("link");fl.rel="stylesheet";fl.href="fonts/fonts.css";document.head.insertBefore(fl,document.head.firstChild);}
 var KN=1.943844, D2R=Math.PI/180, R2D=180/Math.PI;
 function wrap360(a){return ((a%360)+360)%360;}
@@ -1590,10 +1599,24 @@ function drawMap(){
     if(picked){ctx.fillStyle=col("--accent");ctx.fill();}ctx.restore();
     var nmName=(a.name||a.mmsi||"AIS").toString().slice(0,14);
     tag(nmName,p[0]+10*d,p[1]-9*d,col("--accent"),11,"left");
-    if(wv){var up=(R0[0]*wv[0]+R0[1]*wv[1])*1852*(goingUp?1:-1);
-      tag((up>=0?"+":"−")+Math.abs(Math.round(up))+" m",p[0]+10*d,p[1]+7*d,up>=0?col("--port"):col("--stbd"),12,"left");}
+    // our lead on the ladder, same as the camera targets: + and green = we are ahead of that boat
+    if(wv){var upw=(R0[0]*wv[0]+R0[1]*wv[1])*1852,ours=goingUp?-upw:upw;
+      tag(Math.abs(ours)<1?"pari":(ours>=0?"+":"−")+Math.abs(Math.round(ours))+" m",p[0]+10*d,p[1]+7*d,ours>=0?col("--stbd"):col("--port"),12,"left");}
     if(warn){ctx.strokeStyle=col("--port");ctx.lineWidth=2*d;ctx.beginPath();ctx.arc(p[0],p[1],18*d,0,2*Math.PI);ctx.stroke();
       tag("CPA "+Math.round(cpa*1852)+" m "+fmtTime(tc*3600),p[0]+10*d,p[1]+23*d,col("--port"),12,"left");}
+  });
+  // camera targets: last fix, a diamond; our lead on the ladder (+ we are ahead, green) worked out from where we are now
+  Object.keys(camTargets).forEach(function(id){
+    var tg=camTargets[id],age=(nowA-tg.t)/1000;if(age>600)return;
+    var R0=nm(tg.lat,tg.lon),p=sc(R0),fade=Math.max(0.35,1-age/300);
+    var lead=null;if(wv){var upw=(R0[0]*wv[0]+R0[1]*wv[1])*1852;lead=goingUp?-upw:upw;}
+    var cc=lead==null?col("--accent"):lead>=0?col("--stbd"):col("--port");
+    ctx.save();ctx.globalAlpha=fade;ctx.translate(p[0],p[1]);ctx.rotate(Math.PI/4);
+    ctx.strokeStyle=cc;ctx.lineWidth=2.5*d;ctx.strokeRect(-6*d,-6*d,12*d,12*d);if(age<15){ctx.fillStyle=cc;ctx.fillRect(-6*d,-6*d,12*d,12*d);}ctx.restore();
+    ctx.save();ctx.globalAlpha=fade;
+    tag((tg.name||"T"+id)+(age>=60?" · "+Math.round(age/60)+"′":""),p[0]+11*d,p[1]-9*d,col("--ink"),11,"left");
+    if(lead!=null)tag(Math.abs(lead)<1?"pari":(lead>=0?"+":"−")+Math.abs(Math.round(lead))+" m",p[0]+11*d,p[1]+7*d,cc,13,"left");
+    ctx.restore();
   });
   // wind arrow and north, top left
   var wx=34*d,wy=34*d;ctx.strokeStyle=col("--line");ctx.lineWidth=1*d;ctx.beginPath();ctx.arc(wx,wy,24*d,0,2*Math.PI);ctx.stroke();
@@ -1807,11 +1830,26 @@ function connectNM(){
     if(!j.ok){nmMsg((LOCAL?"":"Bridge: ")+j.error,"err");setPill("err","Not connected");return;}
     es=new EventSource(br+"/stream");var n=0;
     es.onmessage=function(ev){n++;parseNMEA(ev.data);if(n===1){save("src","nmea");setPill("live","Live, NMEA "+proto.toUpperCase());nmMsg("Receiving data.","ok");}};
+    es.addEventListener("targets",function(ev){try{targetsIn(JSON.parse(ev.data));}catch(e){}});
     es.addEventListener("status",function(ev){var st=JSON.parse(ev.data);if(!st.connected){setPill("err","Source not reachable");nmMsg((LOCAL?"Cannot reach ":"Bridge cannot reach ")+(host||"*")+":"+port+": "+(st.error||"retrying")+". Retrying every 3 s.","err");}});
     es.onerror=function(){setPill("err",LOCAL?"Connection lost":"Bridge lost");nmMsg(LOCAL?"Lost the internal data connection. Restart MaxRace if this persists.":"Lost the bridge at "+br+". Is maxrace_bridge.py still running?","err");};
   }).catch(function(){setPill("err","No bridge");nmMsg("No bridge at "+br+". Start maxrace_bridge.py on the laptop or Pi and check the address.","err");});
 }
 /* messages from the iPhone/iPad app */
+/* camera targets: boats seen by a camera (the phone, a fixed camera). Each comes as its last RELATIVE fix
+   {id, brg (true deg), dist (m), t (ms)}; it is placed on the chart from our own position at that moment and
+   kept there (its last known position), fading with age. The lead on the ladder is worked out live on the map. */
+var camTargets={};
+function targetsIn(j){
+  var list=(j&&j.targets)||[],own=j&&j.own&&fin(j.own.lat)?j.own:(fin(S.lat)?{lat:S.lat,lon:S.lon}:null);
+  if(!own)return;
+  list.forEach(function(x){
+    if(!fin(x.brg)||!fin(x.dist))return;
+    var p=dest(own.lat,own.lon,x.brg,x.dist/1852);
+    camTargets[String(x.id)]={lat:p.lat,lon:p.lon,brg:x.brg,dist:x.dist,t:fin(x.t)?x.t:Date.now(),name:x.name||null};
+  });
+  if(view==="map"||view==="both")drawMap();
+}
 window.MRN={
   lines:function(a){
     if(source!=="nmea")return;
@@ -1825,7 +1863,10 @@ window.MRN={
   },
   gps:function(g){gpsFix(g);},
   gpsError:function(t){gpsMsg(t,"err");if(source==="gps")setPill("err","No GPS");},
-  saved:function(j){raceSaved(j);}
+  saved:function(j){raceSaved(j);},
+  rec:function(st){natRec=st;renderRec();},
+  recLog:function(c){if(natRead)natRead(c);},
+  targets:function(j){targetsIn(j);}
 };
 // the Capacitor app sends the same calls as one event: {fn, arg}
 if(CAP)window.Capacitor.addListener("MaxRace","mrn",function(d){var f=d&&window.MRN[d.fn];if(f)f(d.arg);});
@@ -1835,6 +1876,11 @@ var gpsWatch=null,gpsLive=false,manWind=load("manwind",{twd:null,tws:null,hdg:fa
 function gpsMsg(t,c){var m=$("gpsMsg");if(m){m.textContent=t;m.className="msg "+(c||"");}}
 function gpsFix(g){
   if(source!=="gps"||!fin(g.lat)||!fin(g.lon))return;
+  gpsRaw(g);
+  if(!gpsLive){gpsLive=true;save("src","gps");setPill("live","Live, phone GPS");gpsMsg("GPS fix"+(fin(g.acc)?" ± "+Math.round(g.acc)+" m":"")+".","ok");}
+}
+// a GPS fix into raw (also used to replay the app's race log)
+function gpsRaw(g){
   raw.lat=g.lat;raw.lon=g.lon;
   if(fin(g.sog)&&g.sog>=0)raw.sog=g.sog;
   // course over ground means little when nearly stopped: keep the last one
@@ -1843,7 +1889,6 @@ function gpsFix(g){
   if(fin(raw.sog))raw.bsp=raw.sog;               // no log: SOG stands in for boat speed
   if(fin(manWind.twd)&&fin(manWind.tws)&&fin(raw.hdg)){raw.twd=manWind.twd;raw.tws=manWind.tws;raw.twa=wrap180(manWind.twd-raw.hdg);raw._d=1;raw._t=1;}
   else{delete raw.twd;delete raw.tws;delete raw.twa;delete raw.awa;delete raw.aws;}
-  if(!gpsLive){gpsLive=true;save("src","gps");setPill("live","Live, phone GPS");gpsMsg("GPS fix"+(fin(g.acc)?" ± "+Math.round(g.acc)+" m":"")+".","ok");}
 }
 function startGps(){
   gpsLive=false;setPill("err","Waiting for GPS");gpsMsg("Waiting for the GPS fix… (allow location access if asked)");
@@ -2552,14 +2597,91 @@ function recStart(how){
   rec={v:1,id:"r"+now.toString(36),t0:now,how:how,boat:boatName||(activeProf()?activeProf().name:""),polar:P.name||"",ptws:pt.length?[pt[0],pt[pt.length-1]]:null,src:source,dt:2,last:0,idx:course.idx,
     pts:[],ev:[{t:now,k:"start",txt:how==="gun"?"Start (gun)":"Start"}],
     marks:seqMarks().map(function(m){return {name:m.name,lat:m.lat,lon:m.lon};})};
-  save("rec",rec);renderRec();
+  if(NATREC&&source!=="sim")rec.nat=fileBase(rec);   // the folder of the race: the app's log goes there
+  save("rec",rec);natRecStart();screenLock(true);renderRec();
 }
+/* the app's own race log (Capacitor app): it goes on with the screen off; the finish fills the page's gaps from it */
+var natRec=null,natRead=null;
+function natRecStart(){if(rec&&rec.nat&&NATREC){natRec=null;nat({cmd:"recStart",folder:rec.nat,boat:rec.boat});}}
+// reads the log back (in chunks) and calls done(lines, error) with "<ms>\t<sentence or GPS json>" lines, or done(null, error)
+function natLogRead(folder,done){
+  var lines=[],tm=setTimeout(function(){natRead=null;done(null,"no answer from the app");},60000);
+  natRead=function(c){
+    clearTimeout(tm);
+    if(c.lines)for(var i=0;i<c.lines.length;i++)lines.push(c.lines[i]);
+    if(c.done){natRead=null;done(c.error&&!lines.length?null:lines,c.error);}
+    else tm=setTimeout(function(){natRead=null;done(null,"the app stopped sending the log");},60000);
+  };
+  nat({cmd:"recRead",folder:folder});
+}
+// one recorded point from the smoothed values S
+function recPoint(rel){
+  var tg=fin(S.twa)&&fin(S.tws)?polarBsp(S.twa,S.tws):NaN;
+  return [rel,rn(S.lat,1e6),rn(S.lon,1e6),rn(S.tws,100),rn(S.twd,10),rn(S.twa,10),rn(S.aws,100),rn(S.awa,10),rn(S.bsp,100),rn(S.sog,100),rn(S.cog,10),rn(S.hdg,10),rn(S.heel,10),rn(tg,100)];
+}
+// replays the log through the same parsing and smoothing as the live page (every 250 ms, a point every 2 s)
+function natLogPts(r,lines){
+  var keepRaw=raw,keepS=S,pts=[],next=null,lastP=-1e9,gps=r.src==="gps";
+  raw={};S={};
+  try{
+    for(var i=0;i<lines.length;i++){
+      var l=lines[i],tab=l.indexOf("\t"),t=+l.slice(0,tab),p=l.slice(tab+1);
+      if(!(tab>0&&t>=r.t0-60000&&t<=r.t1))continue;
+      if(next==null||t-next>10000)next=t;      // no data for a while: no made-up points across the hole
+      while(next<=t){
+        derive();smooth();
+        if(next>=r.t0&&next-lastP>=2000&&fin(S.lat)&&fin(S.lon)){pts.push(recPoint(next-r.t0));lastP=next;}
+        next+=250;
+      }
+      var c=p.charAt(0);
+      if(c==="{"){if(gps)try{var g=JSON.parse(p);if(fin(g.lat)&&fin(g.lon))gpsRaw(g);}catch(e){}}
+      else if(c==="$"&&!gps)parseNMEA(p);
+    }
+  }finally{raw=keepRaw;S=keepS;}
+  return pts;
+}
+// the page's own points stay; the log's points go where the page has none (screen off, app in the background)
+function natMerge(r,lp){
+  var mem=r.pts,gap=Math.max(r.dt*1500,3000),add=[],j=0;
+  lp.forEach(function(p){
+    while(j<mem.length&&mem[j][0]<p[0]-gap)j++;
+    if(j<mem.length&&mem[j][0]<=p[0]+gap)return;
+    add.push(p);
+  });
+  if(add.length){r.pts=mem.concat(add).sort(function(a,b){return a[0]-b[0];});r.natFill=add.length;}
+  return add.length;
+}
+/* recording in the page only (browser, desktop): keep the screen on where the browser allows it, warn about gaps */
+var wakeLk=null;
+function screenLock(on){
+  if(NATIVE)return;      // the apps keep the screen on by themselves
+  try{
+    if(on&&!wakeLk&&navigator.wakeLock&&document.visibilityState==="visible")navigator.wakeLock.request("screen").then(function(w){wakeLk=w;w.addEventListener("release",function(){wakeLk=null;});}).catch(function(){});
+    if(!on&&wakeLk){wakeLk.release().catch(function(){});wakeLk=null;}
+  }catch(e){}
+}
+var hiddenAt=0,titleKeep=null;
+// while hidden the tab title says it (the only thing visible of a hidden tab)
+function titleWarn(on){if(on){if(titleKeep==null)titleKeep=document.title;document.title="⚠ MaxRace: recording may stop in the background";}else if(titleKeep!=null){document.title=titleKeep;titleKeep=null;}}
+function recWarn(t){$("recWarnText").textContent=t;$("recWarn").hidden=!t;}
+document.addEventListener("visibilitychange",function(){
+  if(!rec||(rec.nat&&NATREC)||source==="sim"){hiddenAt=0;titleWarn(false);return;}
+  if(document.visibilityState==="hidden"){hiddenAt=Date.now();titleWarn(true);return;}
+  titleWarn(false);screenLock(true);
+  if(!hiddenAt)return;
+  var from=hiddenAt,now=Date.now();hiddenAt=0;
+  // did the page miss points while it was hidden? (the largest hole between points in that time)
+  var lim=Math.max(rec.dt*3000,10000),prev=from,hole=0;
+  rec.pts.forEach(function(p){var t=rec.t0+p[0];if(t>from&&t<=now){hole=Math.max(hole,t-prev);prev=t;}});
+  hole=Math.max(hole,now-prev);
+  if(hole>lim)recWarn("Recording gap: MaxRace was in the background between "+hhmm(from)+" and "+hhmm(now)+" and the "+(NATIVE||LOCAL?"system":"browser")+" paused it, so part of the race is missing. While racing keep MaxRace in front with the screen on"+(NATIVE||LOCAL?".":", or use the MaxRace app, which records with the screen off."));
+});
+$("recWarnOk").onclick=function(){recWarn("");};
 function recTick(now){
   if(!rec)return;
   if(now-rec.last>=rec.dt*1000&&fin(S.lat)&&fin(S.lon)){
     rec.last=now;
-    var tg=fin(S.twa)&&fin(S.tws)?polarBsp(S.twa,S.tws):NaN;
-    rec.pts.push([now-rec.t0,rn(S.lat,1e6),rn(S.lon,1e6),rn(S.tws,100),rn(S.twd,10),rn(S.twa,10),rn(S.aws,100),rn(S.awa,10),rn(S.bsp,100),rn(S.sog,100),rn(S.cog,10),rn(S.hdg,10),rn(S.heel,10),rn(tg,100)]);
+    rec.pts.push(recPoint(now-rec.t0));
     // very long races: halve the density instead of running out of storage
     if(rec.pts.length>=12000){rec.pts=rec.pts.filter(function(p,i){return i%2===0;});rec.dt*=2;}
   }
@@ -2580,6 +2702,14 @@ function renderRec(){
   if(rec){
     var mk=rec.ev.filter(function(e){return e.k==="mark";}).length;
     $("rcState").textContent="Recording since "+hhmm(rec.t0)+" · "+rec.pts.length+" points · "+mk+" mark"+(mk===1?"":"s")+" logged";
+    var nm=$("rcNat");
+    if(rec.nat&&NATREC){
+      if(!natRec){nm.className="msg";nm.textContent="Starting the recording in the app…";}
+      else if(!natRec.on){nm.className="msg err";nm.textContent="The app could not open its race log ("+(natRec.error||"unknown error")+"): the recording stops if the screen goes off. Keep MaxRace in front with the screen on.";}
+      else if(natRec.warn){nm.className="msg err";nm.textContent=natRec.warn;}
+      else{nm.className="msg ok";nm.textContent="The app records every instrument sentence"+(rec.src==="gps"?" and GPS fix":"")+" by itself, also with the screen off or another app in front"+(ANDROID?" (notification \"MaxRace sta registrando la regata\")":"")+".";}
+    } else if(rec.src==="sim"){nm.className="msg";nm.textContent="";}
+    else{nm.className="msg err";nm.textContent="The recording runs in this page: keep MaxRace in front with the screen on until the finish"+(NATIVE?".":". If the "+(LOCAL?"window is minimised":"tab is hidden or the screen goes off")+", it can stop.");}
   }
   $("rcAuto").checked=autoRec;
   renderRaces();
@@ -2594,10 +2724,24 @@ function recMark(){
 function recFinish(){
   if(!rec)return;
   var now=Date.now();rec.ev.push({t:now,k:"finish",txt:"Finish"});rec.t1=now;
-  var race=rec;rec=null;save("rec",null);delete race.last;delete race.idx;
+  var race=rec;rec=null;save("rec",null);delete race.last;delete race.idx;screenLock(false);recWarn("");titleWarn(false);
+  if(race.nat&&NATREC){
+    // the app's log covers the whole race: fill what the page missed while it was suspended
+    nat({cmd:"recStop"});natRec=null;renderRec();rcMsg("Reading the full race log from the app…");
+    natLogRead(race.nat,function(lines,err){
+      var n=0;
+      if(lines){try{n=natMerge(race,natLogPts(race,lines));}catch(e){err=String(e&&e.message||e);}}
+      recDone(race,n,err);
+    });
+    return;
+  }
+  recDone(race,0,null);
+}
+function recDone(race,filled,err){
+  var note=filled?" "+filled+" points (about "+Math.round(filled*2/60)+" min) filled in from the app's log, recorded while the screen was off or the app in the background.":(err&&race.nat?" (App log not read: "+err+".)":"");
   if(race.pts.length<10){renderRec();rcMsg("Too few points recorded ("+race.pts.length+"): nothing to analyse. The race was not saved.","err");return;}
   var ok=raceStore(race);renderRec();
-  rcMsg(ok?"Race saved.":"Race kept for this session only: the browser storage is full. Download the CSV now.",ok?"ok":"err");
+  rcMsg((ok?"Race saved.":"Race kept for this session only: the browser storage is full. Download the CSV now.")+note,ok?"ok":"err");
   if(LOCAL||NATIVE)raceToDisk(race);
   openReport(race);
 }
@@ -3023,11 +3167,11 @@ function openReport(r){
 }
 $("raceBtn").onclick=function(){renderRec();rcMsg("");$("raceDlg").showModal();};
 $("rcClose").onclick=function(){$("raceDlg").close();};
-$("rcStart").onclick=function(){recStart("manual");rcMsg("Recording. It goes on in the background until you finish the race.","ok");};
+$("rcStart").onclick=function(){recStart("manual");rcMsg(rec&&rec.nat?"Recording. It goes on, also with the screen off, until you finish the race.":"Recording until you finish the race. Keep MaxRace in front with the screen on.","ok");};
 $("rcAuto").onchange=function(e){autoRec=e.target.checked;save("autorec",autoRec);};
 $("rcMark").onclick=recMark;
 $("rcFinish").onclick=function(){if(confirm("Finish the race and save the track?"))recFinish();};
-$("rcDiscard").onclick=function(){if(rec&&confirm("Throw away this recording? The track is lost."))(rec=null,save("rec",null),renderRec(),rcMsg("Recording discarded."));};
+$("rcDiscard").onclick=function(){if(rec&&confirm("Throw away this recording? The track is lost.")){if(rec.nat&&NATREC)nat({cmd:"recStop",discard:true});natRec=null;rec=null;save("rec",null);screenLock(false);recWarn("");titleWarn(false);renderRec();rcMsg("Recording discarded.");}};
 $("rcImport").onclick=function(){$("rcFile").click();};
 $("rcFile").onchange=function(e){
   var fl=e.target.files[0];if(!fl)return;var rd=new FileReader();
@@ -3055,6 +3199,8 @@ if(/claude/.test(location.host)){$("repCsv").hidden=true;$("repHtml").hidden=tru
 if(LOCAL){$("rcDir").hidden=false;$("rcDiskNote").hidden=false;$("repDir").hidden=false;}
 if(NATIVE){$("rcDiskNote").hidden=false;$("rcDiskNote").textContent=ANDROID?"Every finished race is also saved on this device: Files › Documents › MaxRace › Races, with the track (CSV and GPX) and the report (HTML). \"PDF / Share\" makes the PDF.":"Every finished race is also saved on this device: Files app › On My iPhone (or iPad) › MaxRace › Races, with the track (CSV and GPX) and the report (HTML and PDF).";$("repPrint").textContent="PDF / Share";$("repCsv").textContent="Share CSV";$("repHtml").hidden=true;}
 renderRec();
+natRecStart();          // the page was reloaded during a race: the app goes on with the same log (or reopens it)
+if(rec)screenLock(true);
 
 
 /* ---------- UI ---------- */

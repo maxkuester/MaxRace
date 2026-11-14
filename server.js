@@ -148,6 +148,9 @@ function startServer(opts) {
       return json(res, v === shared.ver ? { ver: shared.ver, same: true } : shared);
     }
     if (p === "/shared" && req.method === "POST") return postShared(req, res);
+    // targets seen by a camera (the phone, a fixed camera): their last relative fix, passed on to every screen
+    if (p === "/targets" && req.method === "POST") return postTargets(req, res);
+    if (p === "/targets" && req.method === "GET") return json(res, lastTargets || { targets: [] });
     if (p === "/race/reveal") {
       fs.mkdirSync(o.raceDir, { recursive: true });
       if (o.reveal) o.reveal(o.raceDir);
@@ -157,6 +160,7 @@ function startServer(opts) {
     if (p === "/stream") {
       res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*", Connection: "keep-alive" });
       res.write(`event: status\ndata: ${JSON.stringify(source.status)}\n\n`);
+      if (lastTargets) res.write(`event: targets\ndata: ${JSON.stringify(lastTargets)}\n\n`);
       source.clients.add(res);
       const ka = setInterval(() => { try { res.write(": keep-alive\n\n"); } catch (e) {} }, 15000);
       req.on("close", () => { clearInterval(ka); source.clients.delete(res); });
@@ -216,6 +220,23 @@ function startServer(opts) {
       if (b[tk] !== undefined && (b[tk] || 0) >= (a[tk] || 0)) { out[k] = b[k]; out[tk] = b[tk]; }
     }
     return out;
+  }
+  // {targets: [{id, brg, dist, t, lead?, src?}], own?: {lat, lon}}: brg true degrees and dist metres from our boat,
+  // t the time of the fix (ms). Kept and sent to every screen on the stream as event "targets".
+  let lastTargets = null;
+  function postTargets(req, res) {
+    let body = "", size = 0;
+    req.on("data", (c) => { size += c.length; if (size > 1e6) { req.destroy(); return; } body += c; });
+    req.on("end", () => {
+      try {
+        const j = JSON.parse(body);
+        if (!Array.isArray(j.targets)) throw new Error("targets must be a list");
+        lastTargets = { targets: j.targets.slice(0, 200), own: j.own || null, received: Date.now() };
+        const msg = `event: targets\ndata: ${JSON.stringify(lastTargets)}\n\n`;
+        for (const c of source.clients) { try { c.write(msg); } catch (e) {} }
+        json(res, { ok: true, n: lastTargets.targets.length });
+      } catch (e) { json(res, { ok: false, error: e.message }); }
+    });
   }
   function postShared(req, res) {
     let body = "", size = 0;

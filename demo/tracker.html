@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MaxRace Targets</title>
+<!--
+  Prototype of function 2: boats in a phone video become targets with telemetry.
+  - boats found by an object detector (COCO-SSD, class "boat") running in the browser
+  - bearing = boat heading (H5000, live from the MaxRace server) + camera offset + angle in the picture
+  - distance from the height of the boat in the picture (mast top to water) and the known mast height
+  - lead on the wind axis (ladder lines on TWD): our metres ahead (green) or behind (red)
+  Open: tracker.html?video=<url>&server=http://localhost:8765
+-->
+<style>
+:root{--bg:#000;--panel:#0d1117;--line:#30363d;--ink:#e6edf3;--muted:#8b949e;--good:#3fb950;--bad:#f85149;--acc:#4fa3ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.35 -apple-system,system-ui,sans-serif}
+.wrap{display:grid;grid-template-columns:minmax(0,auto) 300px;gap:12px;padding:12px;justify-content:center}
+@media (max-width:760px){.wrap{grid-template-columns:1fr}}
+.stage{position:relative;max-height:calc(100vh - 24px);aspect-ratio:9/16;background:#111;border-radius:8px;overflow:hidden}
+video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.side{display:flex;flex-direction:column;gap:10px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px}
+h1{font-size:15px;margin:0 0 6px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-variant-numeric:tabular-nums}
+.kv b{font-size:20px}
+.muted{color:var(--muted);font-size:12px}
+label{display:flex;justify-content:space-between;gap:8px;align-items:center;margin:4px 0}
+input[type=number]{width:80px;background:#000;color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:3px 5px}
+input[type=range]{width:120px}
+button{background:var(--acc);color:#000;border:0;border-radius:6px;padding:7px 12px;font-weight:600;cursor:pointer}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+td,th{padding:3px 4px;text-align:right;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:500}
+td:first-child,th:first-child{text-align:left}
+.good{color:var(--good)}.bad{color:var(--bad)}
+#status{font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="stage" id="stage">
+    <video id="vid" playsinline muted loop crossorigin="anonymous"></video>
+    <canvas id="ov"></canvas>
+  </div>
+  <div class="side">
+    <div class="box">
+      <h1>MaxRace Targets</h1>
+      <div id="status" class="muted">Loading the detector…</div>
+    </div>
+    <div class="box kv">
+      <span class="muted">HDG</span><b id="hdg">--</b>
+      <span class="muted">TWD</span><b id="twd">--</b>
+      <span class="muted">TWA</span><span id="twa">--</span>
+      <span class="muted">Source</span><span id="src" class="muted">--</span>
+    </div>
+    <div class="box">
+      <table><thead><tr><th>Target</th><th>Dist m</th><th>Brg</th><th>Lead m</th></tr></thead><tbody id="tbl"></tbody></table>
+      <div class="muted" style="margin-top:6px">Lead: our metres ahead (green) or behind (red) on the ladder, lines square to TWD. Upwind the boat further upwind is ahead; downwind the one further downwind.</div>
+    </div>
+    <div class="box">
+      <label>Mast height above water, m <input type="number" id="mast" value="16" step="0.5"></label>
+      <label>Camera horizontal field, ° <input type="number" id="fov" value="42.6" step="0.5"></label>
+      <label>Camera to bow, ° <span><input type="range" id="off" min="-90" max="90" value="0"> <span id="offv">0</span></span></label>
+      <label>Min. confidence <input type="number" id="conf" value="0.35" step="0.05" min="0.05" max="0.95"></label>
+      <div style="display:flex;gap:8px;margin-top:6px"><button id="play">Pause</button><button id="slow">0.5×</button></div>
+      <div class="muted" style="margin-top:6px">Camera to bow: where the phone points compared with the bow (+ to starboard). In the app this comes from the phone compass, set with "Align" on the H5000 heading.</div>
+    </div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const P = new URLSearchParams(location.search);
+const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+const wrap360 = (a) => ((a % 360) + 360) % 360, wrap180 = (a) => { a = wrap360(a); return a > 180 ? a - 360 : a; };
+const vid = $("vid"), ov = $("ov"), ctx = ov.getContext("2d");
+const nav = { hdg: NaN, twd: NaN, twa: NaN, t: 0 };
+window.__targets = [];
+
+// ---- instruments: NMEA lines from the MaxRace server (the same stream the dashboard uses) ----
+function nmea(line) {
+  const i = line.indexOf("*"); if (i < 0) return;
+  const f = line.slice(0, i).split(","), id = f[0].slice(3);
+  if (id === "HDT") nav.hdg = +f[1];
+  else if (id === "MWD") nav.twd = +f[1];
+  else if (id === "MWV" && f[2] === "T") nav.twa = wrap180(+f[1]);
+  nav.t = Date.now();
+}
+const server = (P.get("server") || "http://localhost:8765").replace(/\/$/, "");
+try {
+  const es = new EventSource(server + "/stream");
+  es.onmessage = (e) => nmea(e.data);
+  es.onerror = () => { $("src").textContent = "no data from " + server; };
+} catch (e) { $("src").textContent = "no data"; }
+
+// ---- geometry ----
+// angle of a picture column from the camera axis, and distance from the boat's height in the picture
+function focalPx(w) { return (w / 2) / Math.tan(+$("fov").value * D2R / 2); }
+function measure(b, w) {
+  const f = focalPx(w), [x, , bw, bh] = b;
+  const ang = Math.atan((x + bw / 2 - w / 2) / f) * R2D;     // + to the right
+  const dist = (+$("mast").value) * f / bh;                  // pinhole: H / h = D / f
+  const brg = wrap360(nav.hdg + (+$("off").value) + ang);
+  // lead on the ladder (lines square to TWD): upwind the boat further upwind is ahead,
+  // downwind (|TWA| > 90, gennaker) the boat further downwind is ahead. + = we are ahead
+  const upwindOfUs = dist * Math.cos((brg - nav.twd) * D2R);
+  const lead = Math.abs(nav.twa) > 90 ? upwindOfUs : -upwindOfUs;
+  return { ang, dist, brg, lead };
+}
+
+// ---- analysis: the whole video first, frame by frame, in overlapping tiles so far boats are found too ----
+// (a phone app runs a boat-trained model in real time; this general detector needs the help)
+const STEP = 1 / 3;                 // seconds between analysed frames
+let model = null, frames = [], tracksOff = [], ready = false;
+const tileCv = document.createElement("canvas"), tileCx = tileCv.getContext("2d");
+
+function overlap(a, b) {
+  const x1 = Math.max(a[0], b[0]), y1 = Math.max(a[1], b[1]), x2 = Math.min(a[0] + a[2], b[0] + b[2]), y2 = Math.min(a[1] + a[3], b[1] + b[3]);
+  const i = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  return { iou: i / (a[2] * a[3] + b[2] * b[3] - i), cont: i / Math.min(a[2] * a[3], b[2] * b[3]) };
+}
+async function detectTile(src, sx, sy, s, W, H, minScore = 0.15) {
+  const n = Math.min(s, 640);
+  tileCv.width = tileCv.height = n;
+  tileCx.drawImage(src, sx, sy, s, s, 0, 0, n, n);
+  const k = s / n, out = [];
+  for (const d of await model.detect(tileCv, 30, minScore)) {
+    if (d.class !== "boat") continue;
+    const b = [sx + d.bbox[0] * k, sy + d.bbox[1] * k, d.bbox[2] * k, d.bbox[3] * k];
+    // cut by an inner tile border: only part of the boat, the tile next to it sees the rest
+    const e = 4;
+    if ((b[0] < sx + e && sx > 0) || (b[1] < sy + e && sy > 0) || (b[0] + b[2] > sx + s - e && sx + s < W) || (b[1] + b[3] > sy + s - e && sy + s < H)) continue;
+    out.push({ box: b, score: d.score });
+  }
+  return out;
+}
+// the horizon: the row where the picture turns from bright sky to darker sea (fraction of the height)
+function horizonY(src) {
+  const w = 108, h = 192, c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const x = c.getContext("2d");
+  x.drawImage(src, 0, 0, w, h);
+  const d = x.getImageData(0, 0, w, h).data, rows = [];
+  for (let y = 0; y < h; y++) { let s = 0; for (let i = 0; i < w; i++) { const k = (y * w + i) * 4; s += d[k] + d[k + 1] + d[k + 2]; } rows.push(s / w / 3); }
+  let best = -1, by = -1;
+  for (let y = Math.round(h * 0.12); y < h * 0.88; y++) {
+    let a = 0, b = 0;
+    for (let k = 1; k <= 6; k++) { a += rows[y - k]; b += rows[Math.min(h - 1, y + k)]; }
+    if ((a - b) / 6 > best) { best = (a - b) / 6; by = y; }
+  }
+  return best > 15 ? by / h : NaN;
+}
+// far boats on the horizon (a few pixels, too small for the detector): anything that rises above the sea line
+// against the sky, sitting on it, narrow, fully inside a thin strip (near boats go higher and are left to the detector)
+function horizonBoats(src, hz) {
+  const W = src.videoWidth || src.naturalWidth, H = src.videoHeight || src.naturalHeight;
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const c2 = cv.getContext("2d"); c2.drawImage(src, 0, 0, W, H);
+  const lum = (d, i) => (d[i] + d[i + 1] + d[i + 2]) / 3;
+  // exact sea line: per column the first row below which it stays dark; a robust median across the picture
+  const ys = Math.max(0, Math.round(hz - 60)), d0 = c2.getImageData(0, ys, W, 140).data, lines = [];
+  for (let x = 0; x < W; x += 3) for (let y = 0; y < 136; y++) {
+    if (lum(d0, (y * W + x) * 4) < 150 && lum(d0, ((y + 3) * W + x) * 4) < 150) { lines.push(y + ys); break; }
+  }
+  if (lines.length < 20) return [];
+  lines.sort((a, b) => a - b);
+  const base = lines[Math.floor(lines.length * 0.75)], y0 = base - 45, hh = 43;
+  if (y0 < 0) return [];
+  const dd = c2.getImageData(0, y0, W, hh).data, mask = new Uint8Array(W * hh);
+  for (let y = 0; y < hh; y++) {
+    const v = []; for (let x = 0; x < W; x += 3) v.push(lum(dd, (y * W + x) * 4));
+    v.sort((a, b) => a - b); const sky = v[Math.floor(v.length * 0.75)];
+    for (let x = 0; x < W; x++) { const l = lum(dd, (y * W + x) * 4); if (sky - l > 35 || l - sky > 30) mask[y * W + x] = 1; }
+  }
+  const lab = new Int32Array(W * hh), out = []; let n = 0;
+  for (let i = 0; i < W * hh; i++) {
+    if (!mask[i] || lab[i]) continue;
+    n++; const st = [i]; let x0 = 1e9, x1 = -1, a0 = 1e9, a1 = -1, cnt = 0; lab[i] = n;
+    while (st.length) {
+      const p = st.pop(), x = p % W, y = (p / W) | 0; cnt++;
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); a0 = Math.min(a0, y); a1 = Math.max(a1, y);
+      for (const q of [p - 1, p + 1, p - W, p + W]) { if (q < 0 || q >= W * hh || Math.abs((q % W) - x) > 1) continue; if (mask[q] && !lab[q]) { lab[q] = n; st.push(q); } }
+    }
+    // at least 10 px tall (smaller is glare or noise), not cut by the picture edge (a piece of coast)
+    if (a0 > 1 && a1 + y0 >= base - 6 && x1 - x0 <= 60 && cnt >= 10 && a1 - a0 >= 9 && x0 > 4 && x1 < W - 5)
+      out.push({ box: [x0, a0 + y0, x1 - x0 + 1, a1 - a0 + 1], score: 0.5, small: true, far: true });
+  }
+  return out;
+}
+async function detectFrame(src) {
+  const W = src.videoWidth || src.naturalWidth, H = src.videoHeight || src.naturalHeight, s = Math.round(Math.min(W, H) / 2), all = [];
+  for (const d of await model.detect(src, 20, 0.15)) if (d.class === "boat") all.push({ box: d.bbox, score: d.score });
+  for (let y = 0; y + s <= H; y += s / 2) for (let x = 0; x + s <= W; x += s / 2) all.push(...await detectTile(src, x, y, s, W, H));
+  // far boats are a few pixels on the horizon: a second row of small tiles along it, enlarged for the detector
+  const hz0 = horizonY(src) * H;
+  if (isFinite(hz0)) all.push(...horizonBoats(src, hz0));
+  if (isFinite(hz0)) {
+    // two sizes of small tiles; a tiny boat must sit on the horizon (hull at it, sails above) to count
+    for (const s2 of [240, 160]) {
+      const y2 = Math.max(0, Math.min(H - s2, Math.round(hz0 - s2 * 0.75)));
+      const xs = []; for (let x = 0; x + s2 <= W; x += s2 / 2) xs.push(x); if ((W - s2) % (s2 / 2)) xs.push(W - s2);
+      for (const x of xs) for (const d of await detectTile(src, x, y2, s2, W, H, 0.12)) {
+        const bottom = d.box[1] + d.box[3];
+        if (d.box[3] >= 8 && d.box[3] <= 70 && bottom > hz0 - 6 && bottom < hz0 + 22) all.push(Object.assign(d, { small: true }));
+        else if (d.score >= 0.15) all.push(d);
+      }
+    }
+  }
+  // our own boat: deck, rail or sail filling the bottom of the picture
+  // a sailing boat is taller than wide (mast and sails): wide shapes are water, rails or our own deck
+  const hz = horizonY(src) * H;
+  const keep = all.filter((d) => {
+    if (d.far) return true;                          // already checked against the sea line
+    const [, y, w, h] = d.box;
+    if (y + h > H * 0.8 || w * h > W * H * 0.2 || h < w * (d.small ? 0.6 : 1.15)) return false;   // a far group of boats can be wider
+    // a boat stands on the horizon: sails above it, hull at most a little below (closer boats lower)
+    if (isFinite(hz) && ((hz - y) / h < 0.4 || y + h > hz + H * 0.1)) return false;
+    return true;
+  });
+  keep.sort((a, b) => b.score - a.score);
+  const out = [];
+  // the same boat seen in several tiles: keep the best one. A much smaller box inside a big one is another boat behind it.
+  const area = (b) => b[2] * b[3];
+  for (const d of keep) if (!out.some((o) => { const v = overlap(o.box, d.box), r = Math.max(area(o.box), area(d.box)) / Math.min(area(o.box), area(d.box)); return v.iou > 0.3 || (v.cont > 0.6 && r < 3); })) out.push(d);
+  return out;
+}
+const seekTo = (t) => new Promise((r) => { vid.onseeked = () => { vid.onseeked = null; r(); }; vid.currentTime = t; });
+
+// the frames come from frames.json (pictures taken from the video beforehand) when there is one:
+// some browsers do not repaint a paused video after a seek, so the detector would see the same picture
+const loadImg = (src) => new Promise((r, j) => { const im = new Image(); im.onload = () => r(im); im.onerror = () => j(new Error("cannot load " + src)); im.src = src; });
+async function analyse() {
+  vid.pause();
+  const dur = vid.duration;
+  let list = null;
+  try { list = await (await fetch(P.get("frames") || "frames.json")).json(); } catch (e) {}
+  if (!list) { list = []; for (let t = 0; t < dur; t += STEP) list.push({ t }); }
+  for (let i = 0; i < list.length; i++) {
+    const t = list[i].t;
+    let src = vid;
+    if (list[i].src) src = await loadImg(list[i].src); else await seekTo(Math.min(t, dur - 0.05));
+    frames.push({ t, dets: await detectFrame(src) });
+    $("status").textContent = `Analysing the video… ${Math.round(100 * t / dur)}%`;
+    if (i % 3 === 0) draw(frames[frames.length - 1].dets.map((d, k) => ({ id: "?", box: d.box, score: d.score })));
+  }
+  linkTracks();
+  ready = true;
+  $("status").textContent = `${tracksOff.length} target${tracksOff.length === 1 ? "" : "s"} found in the video. Playing.`;
+  await seekTo(0);
+  vid.play(); $("play").textContent = "Pause";
+}
+
+// the same boat keeps its number: link detections from frame to frame (overlap, or centre close by)
+function linkTracks() {
+  const W = vid.videoWidth;
+  let live = [], id = 1;
+  frames.forEach((f, i) => {
+    const used = new Set();
+    for (const d of f.dets.filter((d) => d.score >= (d.small ? 0.12 : +$("conf").value))) {
+      let best = null, bs = 0;
+      for (const tr of live) {
+        if (used.has(tr) || i - tr.lastI > 4) continue;
+        const lb = tr.pts[tr.pts.length - 1].box, v = overlap(lb, d.box).iou;
+        const dc = Math.hypot(lb[0] + lb[2] / 2 - d.box[0] - d.box[2] / 2, lb[1] + lb[3] / 2 - d.box[1] - d.box[3] / 2) / W;
+        const sc = v > 0.05 ? 1 + v : dc < 0.12 ? 1 - dc : 0;
+        if (sc > bs) { bs = sc; best = tr; }
+      }
+      if (best) { best.pts.push({ i, t: f.t, box: d.box, score: d.score }); best.lastI = i; used.add(best); }
+      else { const tr = { pts: [{ i, t: f.t, box: d.box, score: d.score }], lastI: i }; live.push(tr); used.add(tr); }
+    }
+  });
+  tracksOff = live.filter((tr) => tr.pts.length >= 3);
+  tracksOff.forEach((tr) => { tr.id = id++; });
+}
+
+// boxes at the current time: between two analysed frames the box moves smoothly
+function boxesAt(t) {
+  const out = [];
+  for (const tr of tracksOff) {
+    const p = tr.pts;
+    if (t < p[0].t - STEP / 2 || t > p[p.length - 1].t + STEP / 2) continue;
+    let k = p.findIndex((q) => q.t > t);
+    if (k === -1) k = p.length - 1;
+    const a = p[Math.max(0, k - 1)], b = p[k];
+    if (b.t - a.t > STEP * 2.5 && t > a.t + STEP / 2 && t < b.t - STEP / 2) continue;   // not seen in between
+    const u = b.t > a.t ? Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t))) : 0;
+    // distance from a steadier height: the median of the nearby frames
+    const near = p.filter((q) => Math.abs(q.t - t) <= 1).map((q) => q.box[3]).sort((x, y) => x - y);
+    out.push({ id: tr.id, box: a.box.map((v, j) => v + (b.box[j] - v) * u), hMed: near[near.length >> 1], score: a.score });
+  }
+  return out;
+}
+
+// ---- drawing ----
+function draw(list) {
+  const w = vid.videoWidth, h = vid.videoHeight;
+  if (ov.width !== w) { ov.width = w; ov.height = h; }
+  ctx.clearRect(0, 0, w, h);
+  const rows = [], have = isFinite(nav.hdg) && isFinite(nav.twd);
+  for (const t of list) {
+    const [x, y, bw, bh] = t.box, m = measure(t.hMed ? [x, y, bw, t.hMed] : t.box, w);
+    const good = m.lead >= 0, col = !have || t.id === "?" ? "#4fa3ff" : good ? "#3fb950" : "#f85149";
+    ctx.lineWidth = Math.max(3, w / 300); ctx.strokeStyle = col; ctx.strokeRect(x, y, bw, bh);
+    if (t.id === "?") continue;
+    const big = Math.round(Math.max(26, w / 22)), small = Math.round(big * 0.55);
+    const l1 = have ? (good ? "+" : "−") + Math.round(Math.abs(m.lead)) + " m" : "T" + t.id;
+    const l2 = "T" + t.id + " · " + Math.round(m.dist) + " m" + (have ? " · " + Math.round(m.brg) + "°" : "");
+    ctx.font = `700 ${big}px -apple-system,system-ui,sans-serif`;
+    const w1 = ctx.measureText(l1).width;
+    ctx.font = `500 ${small}px -apple-system,system-ui,sans-serif`;
+    const tw = Math.max(w1, ctx.measureText(l2).width) + 16, th = big + small + 14;
+    const tx = Math.min(Math.max(0, x), w - tw), ty = y - th - 6 > 0 ? y - th - 6 : y + bh + 6;
+    ctx.fillStyle = "rgba(0,0,0,.7)"; ctx.fillRect(tx, ty, tw, th);
+    ctx.fillStyle = col; ctx.font = `700 ${big}px -apple-system,system-ui,sans-serif`; ctx.fillText(l1, tx + 8, ty + big);
+    ctx.fillStyle = "#e6edf3"; ctx.font = `500 ${small}px -apple-system,system-ui,sans-serif`; ctx.fillText(l2, tx + 8, ty + big + small + 6);
+    rows.push({ id: t.id, dist: Math.round(m.dist), brg: have ? Math.round(m.brg) : null, lead: have ? Math.round(m.lead) : null });
+  }
+  window.__targets = rows;
+  $("tbl").innerHTML = rows.filter((r) => r.id !== "?").map((r) => `<tr><td>T${r.id}</td><td>${r.dist}</td><td>${r.brg == null ? "--" : r.brg + "°"}</td>` +
+    `<td class="${r.lead == null ? "" : r.lead >= 0 ? "good" : "bad"}">${r.lead == null ? "--" : (r.lead >= 0 ? "+" : "−") + Math.abs(r.lead)}</td></tr>`).join("") ||
+    `<tr><td colspan="4" class="muted" style="text-align:left">No boats in view</td></tr>`;
+}
+
+function showNav() {
+  const fresh = Date.now() - nav.t < 3000;
+  $("hdg").textContent = isFinite(nav.hdg) ? Math.round(nav.hdg) + "°" : "--";
+  $("twd").textContent = isFinite(nav.twd) ? Math.round(nav.twd) + "°" : "--";
+  $("twa").textContent = isFinite(nav.twa) ? Math.abs(Math.round(nav.twa)) + "° " + (nav.twa < 0 ? "port" : "starboard") : "--";
+  $("src").textContent = fresh ? "live, " + server : "waiting for " + server;
+}
+setInterval(showNav, 500);
+
+function render() {
+  if (ready) draw(boxesAt(vid.currentTime));
+  requestAnimationFrame(render);
+}
+
+$("off").oninput = () => { $("offv").textContent = $("off").value; };
+$("play").onclick = () => { if (vid.paused) { vid.play(); $("play").textContent = "Pause"; } else { vid.pause(); $("play").textContent = "Play"; } };
+$("slow").onclick = () => { vid.playbackRate = vid.playbackRate === 1 ? 0.5 : 1; $("slow").textContent = vid.playbackRate === 1 ? "0.5×" : "1×"; };
+if (P.get("off")) { $("off").value = P.get("off"); $("offv").textContent = P.get("off"); }
+
+vid.src = P.get("video") || "video.mp4";
+$("conf").onchange = () => { if (ready) linkTracks(); };
+Promise.all([cocoSsd.load({ base: "mobilenet_v2" }), new Promise((r) => vid.readyState >= 1 ? r() : (vid.onloadedmetadata = r))]).then(([m]) => {
+  model = m;
+  requestAnimationFrame(render);
+  return analyse();
+}).catch((e) => { $("status").textContent = "Could not start: " + e.message; });
+</script>
+</body>
+</html>

@@ -130,7 +130,7 @@ public class MaxRacePlugin extends Plugin implements LocationListener, SensorEve
                 synchronized (pending) { pending.clear(); }
                 break;
             case "gps":
-                if (b.getBool("on", false)) {
+                if (b.optBoolean("on", false)) {
                     if (getPermissionState("location") != PermissionState.GRANTED) {
                         requestPermissionForAlias("location", call, "gpsPermission");
                         return;
@@ -156,7 +156,7 @@ public class MaxRacePlugin extends Plugin implements LocationListener, SensorEve
                 recStart(b);
                 break;
             case "recStop":
-                recStop(b.getBool("discard", false));
+                recStop(b.optBoolean("discard", false));
                 break;
             case "recRead":
                 recRead(clean(b.getString("folder", "")));

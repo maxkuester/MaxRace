@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+  <!-- MaxRace: an M made of two boats close-hauled on opposite tacks, seen from windward; black wedges = the mainsails' leeches -->
+  <rect width="160" height="160" rx="36" fill="#111315"/>
+  <polygon points="132,32 118,32 80,102 80,132 118,60 118,62 105,128 132,128" fill="#E3242B"/>
+  <polygon points="28,32 42,32 80.4,102.7 80.4,132.8 42,60 42,62 55,128 28,128" fill="#F2F4F6"/>
+</svg>

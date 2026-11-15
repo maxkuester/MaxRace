@@ -9,7 +9,7 @@
   "scripts": {
     "start": "electron .",
     "fonts": "node scripts/fetch-fonts.js",
-    "dist": "node scripts/fetch-fonts.js && electron-builder --publish never",
+    "dist": "node scripts/fetch-fonts.js && node scripts/fetch-vendor.js && electron-builder --publish never",
     "server": "node server.js",
     "cap:web": "node scripts/build-native-web.js",
     "vendor": "node scripts/fetch-vendor.js",
@@ -29,7 +29,11 @@
     "files": [
       "main.js",
       "server.js",
+      "scan.js",
       "maxrace.html",
+      "targets.js",
+      "scripts/target-tack.js",
+      "vendor/**",
       "fonts/**",
       "build/icon.png"
     ],

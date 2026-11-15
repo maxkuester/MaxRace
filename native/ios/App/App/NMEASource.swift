@@ -154,3 +154,212 @@ final class NMEASource {
         }
     }
 }
+
+// "Find": looks for the instrument data on the boat Wi-Fi for someone who does not know the gateway's address.
+// Every address of the phone's network (/24) on the ports NMEA gateways use, over TCP, while listening for UDP
+// broadcasts; each answer is recognised (NMEA 0183, AIS only, raw NMEA 2000, Signal K, open but silent).
+// The same rules as scan.js in the computer program, so every MaxRace finds the same sources.
+final class NetScan {
+    var onState: (([String: Any]) -> Void)?
+
+    static let tcpPorts: [UInt16] = [10110, 2000, 1456, 60001, 39150, 3000, 2002, 1457, 60002, 2001, 5000, 5001, 4000, 8888, 6000, 2947, 23]
+    static let udpPorts: [UInt16] = [10110, 2000, 1456, 1457, 2002, 60002, 5000, 6000]
+
+    private let q = DispatchQueue(label: "maxrace.scan")
+    private var gen = 0, running = false, done = 0, total = 0, next = 0, inFlight = 0
+    private var jobs: [(String, UInt16)] = []
+    private var found: [[String: Any]] = []
+    private var netName = "", myIp = "", error: String?
+    private var udp: [Int32] = []
+    private var lastEmit = 0.0
+
+    func start() { q.async { self.begin() } }
+    func stop() { q.async { self.gen += 1; self.running = false; self.closeUdp(); self.emit(true) } }
+
+    private func begin() {
+        gen += 1
+        let g = gen
+        closeUdp(); found = []; done = 0; next = 0; inFlight = 0; error = nil
+        guard let ip = NetScan.wifiAddress() else {
+            running = false; total = 0; netName = ""
+            error = "This phone is not on a Wi-Fi network. Join the boat Wi-Fi first."
+            emit(true); return
+        }
+        let base = ip.split(separator: ".").prefix(3).joined(separator: ".")
+        netName = base + ".0/24"; myIp = ip
+        jobs = []
+        for port in NetScan.tcpPorts { for i in 1...254 { jobs.append((base + ".\(i)", port)) } }
+        total = jobs.count; running = true
+        openUdp(g)
+        emit(true)
+        for _ in 0..<64 { pump(g) }
+    }
+
+    private func pump(_ g: Int) {
+        guard g == gen, running else { return }
+        if next >= jobs.count {
+            if inFlight == 0 {
+                // a last moment for slow UDP broadcasters
+                q.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                    guard let self = self, g == self.gen else { return }
+                    self.running = false; self.closeUdp(); self.emit(true)
+                }
+            }
+            return
+        }
+        let (h, p) = jobs[next]; next += 1; inFlight += 1
+        probe(h, p, g)
+    }
+
+    private func probe(_ host: String, _ port: UInt16, _ g: Int) {
+        guard let np = NWEndpoint.Port(rawValue: port) else { inFlight -= 1; done += 1; pump(g); return }
+        let c = NWConnection(host: NWEndpoint.Host(host), port: np, using: .tcp)
+        var finished = false, opened = false
+        var data = Data()
+        let end: () -> Void = { [weak self] in
+            guard let self = self, !finished else { return }
+            finished = true
+            c.cancel()
+            if g == self.gen, opened {
+                let text = String(decoding: data, as: UTF8.self)
+                var f: [String: Any] = ["proto": "tcp", "host": host, "port": Int(port)]
+                if let k = NetScan.classify(text) {
+                    k.forEach { f[$0.key] = $0.value }
+                    f["sample"] = text.split(whereSeparator: \.isNewline).first(where: { $0.hasPrefix("$") || $0.hasPrefix("!") }).map(String.init) ?? ""
+                } else { f["kind"] = "open"; f["what"] = [String](); f["types"] = [String](); f["score"] = 1 }
+                self.add(f)
+            }
+            self.inFlight -= 1; self.done += 1
+            self.emit(false)
+            self.pump(g)
+        }
+        func read() {
+            c.receive(minimumIncompleteLength: 1, maximumLength: 4096) { d, _, complete, err in
+                if let d = d { data.append(d) }
+                if data.count > 4096 || complete || err != nil { end() } else { read() }
+            }
+        }
+        c.stateUpdateHandler = { st in
+            switch st {
+            case .ready:
+                opened = true
+                if port == 3000 { c.send(content: "GET /signalk HTTP/1.0\r\nHost: \(host)\r\n\r\n".data(using: .utf8), completion: .contentProcessed { _ in }) }
+                read()
+                self.q.asyncAfter(deadline: .now() + 2.5) { end() }
+            case .failed, .cancelled, .waiting: end()       // waiting = refused or unreachable: nothing there
+            default: break
+            }
+        }
+        c.start(queue: q)
+        q.asyncAfter(deadline: .now() + 0.8) { if !opened { end() } }
+    }
+
+    private func add(_ f: [String: Any]) {
+        let key = { (x: [String: Any]) in "\(x["proto"] ?? "") \(x["host"] ?? ""):\(x["port"] ?? "")" }
+        let s = { (x: [String: Any]) in (x["score"] as? Int) ?? 0 }
+        if let i = found.firstIndex(where: { key($0) == key(f) }) { if s(f) > s(found[i]) { found[i] = f } }
+        else { found.append(f) }
+        found.sort { s($0) > s($1) }
+        emit(true)
+    }
+
+    private func emit(_ force: Bool) {
+        let now = Date().timeIntervalSince1970
+        if !force && now - lastEmit < 0.3 { return }
+        lastEmit = now
+        var o: [String: Any] = ["running": running, "done": done, "total": total, "net": netName, "ip": myIp, "found": found]
+        if let e = error { o["error"] = e }
+        let cb = onState
+        DispatchQueue.main.async { cb?(o) }
+    }
+
+    // UDP: gateways that broadcast. Plain sockets, one reader each, on their ports for the whole search.
+    private func openUdp(_ g: Int) {
+        for port in NetScan.udpPorts {
+            let s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+            if s < 0 { continue }
+            var one: Int32 = 1
+            setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, socklen_t(MemoryLayout<Int32>.size))
+            setsockopt(s, SOL_SOCKET, SO_REUSEPORT, &one, socklen_t(MemoryLayout<Int32>.size))
+            var tv = timeval(tv_sec: 0, tv_usec: 400_000)
+            setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+            var a = sockaddr_in()
+            a.sin_family = sa_family_t(AF_INET); a.sin_port = port.bigEndian; a.sin_addr.s_addr = INADDR_ANY
+            let ok = withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(s, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+            if ok != 0 { close(s); continue }
+            udp.append(s)
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                var buf = [UInt8](repeating: 0, count: 4096)
+                while true {
+                    guard let self = self else { return }
+                    var from = sockaddr_in(), len = socklen_t(MemoryLayout<sockaddr_in>.size)
+                    let n = withUnsafeMutablePointer(to: &from) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { recvfrom(s, &buf, buf.count, 0, $0, &len) } }
+                    var alive = false
+                    self.q.sync { alive = g == self.gen && self.running }
+                    if !alive { return }
+                    if n <= 0 { continue }
+                    let text = String(decoding: buf[0..<n], as: UTF8.self)
+                    guard let k = NetScan.classify(text + "\n" + text) else { continue }
+                    var ipb = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+                    var addr = from.sin_addr
+                    inet_ntop(AF_INET, &addr, &ipb, socklen_t(INET_ADDRSTRLEN))
+                    var f: [String: Any] = ["proto": "udp", "host": String(cString: ipb), "port": Int(port), "sample": text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""]
+                    k.forEach { f[$0.key] = $0.value }
+                    self.q.async { if g == self.gen { self.add(f) } }
+                }
+            }
+        }
+    }
+    private func closeUdp() { udp.forEach { close($0) }; udp = [] }
+
+    // what a few kilobytes from a source are, and in words for the list (same as scan.js)
+    static func classify(_ text: String) -> [String: Any]? {
+        var types = Set<String>(), n = 0
+        if let re = try? NSRegularExpression(pattern: "[$!]([A-Z]{2})([A-Z]{3}),") {
+            for m in re.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                if let r = Range(m.range(at: 2), in: text) { types.insert(String(text[r])); n += 1 }
+            }
+        }
+        let has = { (k: [String]) in k.contains { types.contains($0) } }
+        var what: [String] = []
+        if has(["MWV", "MWD", "VWR", "VWT"]) { what.append("wind") }
+        if has(["HDT", "HDG", "HDM"]) { what.append("heading") }
+        if has(["VHW"]) { what.append("boat speed") }
+        if has(["RMC", "GGA", "GLL", "VTG"]) { what.append("GPS") }
+        if has(["DPT", "DBT"]) { what.append("depth") }
+        if has(["VDM", "VDO"]) { what.append("AIS") }
+        if has(["PCDIN"]) { what.append("NMEA 2000 inside 0183") }
+        if n >= 2 {
+            let inst = has(["MWV", "MWD", "HDT", "HDG", "HDM", "VHW"])
+            let kind = inst ? "nmea" : (what == ["AIS"] ? "ais" : "nmea")
+            return ["kind": kind, "what": what, "types": types.sorted(), "score": (inst ? 100 : 40) + what.count * 5 + min(n, 20)]
+        }
+        if text.range(of: "\\d\\d:\\d\\d:\\d\\d\\.\\d{3} [RT] [0-9A-F]{8}", options: .regularExpression) != nil {
+            return ["kind": "n2k", "what": ["NMEA 2000 (raw)"], "types": [String](), "score": 10]
+        }
+        if text.range(of: "signalk-ws|\"signalk\"|signalk-http", options: [.regularExpression, .caseInsensitive]) != nil {
+            return ["kind": "signalk", "what": ["Signal K"], "types": [String](), "score": 30]
+        }
+        return nil
+    }
+
+    // the phone's Wi-Fi address (en0)
+    static func wifiAddress() -> String? {
+        var ifa: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifa) == 0, let first = ifa else { return nil }
+        defer { freeifaddrs(ifa) }
+        var p: UnsafeMutablePointer<ifaddrs>? = first
+        while let i = p {
+            let a = i.pointee
+            if String(cString: a.ifa_name) == "en0", let sa = a.ifa_addr, sa.pointee.sa_family == UInt8(AF_INET) {
+                var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                if getnameinfo(sa, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
+                    let s = String(cString: host)
+                    if !s.hasPrefix("169.254.") { return s }
+                }
+            }
+            p = a.ifa_next
+        }
+        return nil
+    }
+}

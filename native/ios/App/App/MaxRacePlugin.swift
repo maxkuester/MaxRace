@@ -31,6 +31,7 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
     ]
 
     private let nmea = NMEASource()
+    private let scanner = NetScan()
     private var loc: CLLocationManager?
     private var gpsOn = false
     private var heading: Double = -1
@@ -49,6 +50,7 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
             self.raceLog.lines(lines)
             if self.inFront { self.pending.append(contentsOf: lines) }
         }
+        scanner.onState = { [weak self] st in self?.send("scan", st) }
         nmea.onStatus = { [weak self] ok, err in
             self?.raceLog.note(ok ? "source connected" : "source not connected: \(err ?? "")")
             var o: [String: Any] = ["connected": ok]
@@ -120,6 +122,10 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
             pending.removeAll()
         case "gps":
             setGps((b["on"] as? NSNumber)?.boolValue ?? false)
+        case "scan":
+            scanner.start()
+        case "scanStop":
+            scanner.stop()
         case "camDir":
             camDir((b["on"] as? NSNumber)?.boolValue ?? false)
         case "save":

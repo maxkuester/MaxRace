@@ -69,6 +69,7 @@ import java.util.List;
 )
 public class MaxRacePlugin extends Plugin implements LocationListener, SensorEventListener {
     private static final double KN = 1.943844;
+    private NetScan scanner;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<String> pending = new ArrayList<>();
     private NmeaSource nmea;
@@ -80,6 +81,7 @@ public class MaxRacePlugin extends Plugin implements LocationListener, SensorEve
 
     @Override
     public void load() {
+        scanner = new NetScan(getContext(), st -> { if (front) send("scan", st); });
         nmea = new NmeaSource(getContext(), new NmeaSource.Listener() {
             @Override public void onLines(List<String> lines) {
                 RaceLog.lines(lines);
@@ -128,6 +130,12 @@ public class MaxRacePlugin extends Plugin implements LocationListener, SensorEve
             case "disconnect":
                 nmea.stop();
                 synchronized (pending) { pending.clear(); }
+                break;
+            case "scan":
+                scanner.start();
+                break;
+            case "scanStop":
+                scanner.stop();
                 break;
             case "camDir":
                 camDir(b.optBoolean("on", false));

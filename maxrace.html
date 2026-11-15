@@ -355,6 +355,15 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .wrow input,.wrow select{width:100%;font-size:1.1rem;padding:10px;border:1px solid var(--line);border-radius:6px;background:#000;color:var(--ink)}
 .wgo{width:100%;min-height:52px;border:0;border-radius:8px;background:var(--accent);color:#000;font-family:var(--num);font-weight:700;font-size:1.3rem;letter-spacing:.04em}
 .wsim{border:0;background:transparent;color:var(--muted);text-decoration:underline;font-size:.85rem}
+.scan{width:100%;display:grid;gap:6px;text-align:left;font-size:.9rem}
+.scan .sh{color:var(--muted);font-size:.85rem}
+.scan .bar{height:4px;background:var(--line);border-radius:2px;overflow:hidden}.scan .bar i{display:block;height:100%;background:var(--accent)}
+.scan .it{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:8px}
+.scan .it b{font-family:var(--num);font-size:1.05rem}.scan .it small{color:var(--muted);grid-column:1}
+.scan .it.good{border-color:var(--stbd)}.scan .it.warn small{color:var(--warn,#e8a33a)}
+.scan .it button{grid-row:1 / span 2;grid-column:2;border:0;border-radius:6px;padding:8px 14px;background:var(--accent);color:#000;font-weight:700}
+.scan details{color:var(--muted);font-size:.85rem}.scan ul{margin:6px 0 0;padding-left:18px}
+.wfind{width:100%;min-height:44px;border:1px solid var(--accent);border-radius:8px;background:transparent;color:var(--accent);font-weight:700;font-size:1rem}
 @media (max-width:420px){.wrow{grid-template-columns:1fr 1fr}.wrow label:nth-child(2){grid-column:1 / -1;grid-row:1}}
 
 /* ---- boat selector ---- */
@@ -583,6 +592,8 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
       <label>Port<input type="text" id="wPort" inputmode="numeric" placeholder="10110"></label>
     </div>
     <button class="wgo" id="wGo">Connect</button>
+    <button class="wfind" id="wFind">Don't know them? Find the boat's data</button>
+    <div class="scan" id="wFound" hidden></div>
     <div class="msg" id="wMsg"></div>
     <button class="wsim" id="wGps" hidden>No instruments: use only the phone's GPS</button>
     <button class="wsim" id="wSim">No instruments now: try the simulator</button>
@@ -803,7 +814,9 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
           <label>IP <input type="text" id="nmHost" placeholder="192.168.1.50" style="max-width:150px"></label>
           <label>Port <input type="text" id="nmPort" inputmode="numeric" placeholder="10110" style="max-width:80px"></label>
           <button class="btn primary" id="nmConnect">Connect</button>
+          <button class="btn" id="nmFind" title="Search the Wi-Fi for the instrument data">Find</button>
         </div>
+        <div class="scan" id="nmFound" hidden style="margin-top:8px"></div>
         <div class="row" id="nmBridgeRow" style="margin-top:6px"><label>Bridge <input type="text" id="nmBridge" placeholder="http://localhost:8765" style="max-width:240px"></label></div>
         <div class="msg" id="nmMsg"></div>
         <p id="nmShare" hidden style="margin-top:6px"></p>
@@ -1815,6 +1828,50 @@ $("meClose").onclick=function(){$("mkEdDlg").close();};
 /* ---------- NMEA 0183 over TCP/UDP, via the local bridge ---------- */
 var es=null;
 function nmMsg(t,c){var m=$("nmMsg");m.textContent=t;m.className="msg "+(c||"");}
+/* ---- Find: search the boat Wi-Fi for the instrument data (scan.js on a computer, MaxRacePlugin in the apps) ---- */
+var scanBox=null,scanPick=null,scanPoll=null;
+function scanStart(box,pick){
+  if(scanBox&&scanBox!==box)scanBox.hidden=true;
+  scanBox=box;scanPick=pick;box.hidden=false;
+  box.innerHTML='<div class="sh">Looking for the instruments on this Wi-Fi…</div>';
+  if(NATIVE){nat({cmd:"scan"});return;}
+  if(!LOCAL){box.innerHTML='<div class="sh">A browser cannot search the network. Use the MaxRace app on the phone, or the MaxRace program on a computer on the boat Wi-Fi.</div>';return;}
+  clearInterval(scanPoll);
+  fetch("/scan",{method:"POST"}).then(function(r){return r.json();}).then(function(j){
+    scanShow(j);
+    scanPoll=setInterval(function(){fetch("/scan").then(function(r){return r.json();}).then(function(j){scanShow(j);if(!j.running)clearInterval(scanPoll);}).catch(function(){});},700);
+  }).catch(function(){box.innerHTML='<div class="sh">Cannot reach the MaxRace program.</div>';});
+}
+window.MRN=window.MRN||{};
+function scanShow(st){
+  var box=scanBox;if(!box||!st)return;
+  var esc=function(t){return String(t).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});};
+  var pc=st.total?Math.round(100*st.done/st.total):0,h="";
+  if(st.error)h+='<div class="sh">'+esc(st.error)+'</div>';
+  else h+='<div class="sh">'+(st.running?"Searching "+esc(st.net||"the network")+" … "+pc+"%":"Searched "+esc(st.net||"the network")+".")+'</div>'+(st.running?'<div class="bar"><i style="width:'+pc+'%"></i></div>':"");
+  var f=st.found||[],useful=f.filter(function(x){return x.kind!=="open";}),open=f.filter(function(x){return x.kind==="open";});
+  useful.forEach(function(x,i){
+    var addr=x.host+":"+x.port+" "+x.proto.toUpperCase(),line,cls="it",btn=true;
+    if(x.kind==="nmea"){line=(x.what&&x.what.length?x.what.join(", "):"NMEA 0183");cls+=/wind|heading/.test(line)?" good":"";}
+    else if(x.kind==="ais"){line="AIS only (other boats), no instruments";}
+    else if(x.kind==="signalk"){line="Signal K server";}
+    else if(x.kind==="n2k"){line="NMEA 2000 in raw form: set the gateway to send NMEA 0183 for MaxRace";cls+=" warn";btn=false;}
+    else line=x.kind;
+    h+='<div class="'+cls+'"><b>'+esc(addr)+'</b>'+(btn?'<button data-i="'+f.indexOf(x)+'">Use</button>':"")+'<small>'+esc(line)+'</small></div>';
+  });
+  if(open.length)h+='<details><summary>'+open.length+' open port'+(open.length>1?"s":"")+' with no data</summary><ul>'+open.slice(0,20).map(function(x){return '<li><a href="#" data-i="'+f.indexOf(x)+'">'+esc(x.host+":"+x.port)+' TCP</a></li>';}).join("")+'</ul></details>';
+  if(!st.running&&!useful.length&&!st.error)h+='<div class="sh">Nothing found. Check that this '+(NATIVE?"phone":"computer")+' is on the boat Wi-Fi (not on mobile data or a hotspot), the instruments are on, and the gateway sends NMEA 0183 over Wi-Fi (TCP server or UDP).</div>';
+  box.innerHTML=h;
+  Array.prototype.forEach.call(box.querySelectorAll("[data-i]"),function(el){el.onclick=function(e){e.preventDefault();var x=f[+el.getAttribute("data-i")];if(x&&scanPick)scanPick(x);};});
+}
+window.MRN.scan=function(st){scanShow(st);};
+// use a found source: NMEA over TCP/UDP, or Signal K on its WebSocket
+function scanUse(x){
+  if(NATIVE)nat({cmd:"scanStop"});else if(LOCAL)fetch("/scan/stop").catch(function(){});
+  clearInterval(scanPoll);
+  if(x.kind==="signalk"){$("skUrl").value="ws://"+x.host+":"+x.port+"/signalk/v1/stream?subscribe=none";setSource("sk");connectSK($("skUrl").value);return;}
+  $("nmProto").value=x.proto;$("nmHost").value=x.proto==="udp"?"":x.host;$("nmPort").value=x.port;setSource("nmea");connectNM();
+}
 var nmGen=0;
 function disconnectNM(){nmGen++;if(es){try{es.close();}catch(e){}es=null;}if(NATIVE)nat({cmd:"disconnect"});natLive=false;}
 var natLive=false,natProto="tcp";
@@ -3282,6 +3339,7 @@ $("mwTwd").oninput=$("mwTws").oninput=$("mwHdg").onchange=readManWind;
 $("mwTwd").value=manWind.twd!=null?manWind.twd:"";$("mwTws").value=manWind.tws!=null?manWind.tws:"";$("mwHdg").checked=!!manWind.hdg;
 $("srcNM").onclick=function(){setSource("nmea");nmMsg("Enter IP and port of the NMEA source and choose Connect.");};
 $("nmConnect").onclick=function(){setSource("nmea");connectNM();};
+$("nmFind").onclick=function(){scanStart($("nmFound"),function(x){scanUse(x);$("nmFound").hidden=true;});};
 $("skConnect").onclick=function(){setSource("sk");connectSK($("skUrl").value.trim());};
 
 function polarToText(p){
@@ -3733,6 +3791,11 @@ if(LOCAL||NATIVE){
     $("welcome").showModal();
     $("wProto").onchange=function(){$("wHost").placeholder=$("wProto").value==="udp"?"optional":"192.168.1.50";};
     $("wSim").onclick=function(){save("src","sim");$("welcome").close();};
+    // someone who does not know the gateway: search, then the same as typing it in and tapping Connect
+    $("wFind").onclick=function(){scanStart($("wFound"),function(x){
+      if(x.kind==="signalk"){scanUse(x);$("welcome").close();return;}
+      $("wProto").value=x.proto;$("wHost").value=x.proto==="udp"?"":x.host;$("wPort").value=x.port;$("wFound").hidden=true;$("wGo").click();
+    });};
     if(NATIVE){$("wGps").hidden=false;$("wGps").onclick=function(){$("welcome").close();setSource("gps");};}
     $("wGo").onclick=function(){
       var pr=$("wProto").value,h=$("wHost").value.trim(),pt=$("wPort").value.trim(),m=$("wMsg");

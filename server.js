@@ -13,6 +13,7 @@ const dgram = require("dgram");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const scan = require("./scan");
 
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".woff2": "font/woff2", ".png": "image/png", ".json": "application/json", ".js": "text/javascript; charset=utf-8" };
 
@@ -149,6 +150,10 @@ function startServer(opts) {
       return json(res, { ok: true });
     }
     if (p === "/disconnect") { source.stop(); source.status.connected = false; source.status.error = "stopped"; return json(res, { ok: true }); }
+    // "Find": looks for the instrument data on the network (scan.js); the page asks for the state while it runs
+    if (p === "/scan" && req.method === "POST") return json(res, scan.start());
+    if (p === "/scan/stop") { scan.stop(); return json(res, scan.state()); }
+    if (p === "/scan") return json(res, scan.state());
     if (p === "/status") return json(res, source.status);
     if (p === "/race/save" && req.method === "POST") return saveRace(req, res);
     if (p === "/shared" && req.method === "GET") {

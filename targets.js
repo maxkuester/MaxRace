@@ -249,9 +249,14 @@
         best.seen = t; best.hits = (best.hits || 0) + 1; best.box = m.box; best.ang = m.ang; best.far = m.far;
         best.pts.push({ t: t, brg: m.brg, dist: m.dist });
         best.pts = best.pts.filter(function (p) { return t - p.t <= 8; });
-        var rd = best.pts.slice(-5);
-        best.dist = median(rd.map(function (p) { return p.dist; }));
-        best.brg = fin(m.brg) ? m.brg : NaN;
+        // damping: the box height wobbles by a few pixels from frame to frame (waves, heel, the detector), so the
+        // distance is the median of the last second, then eased in with a time constant of about 1.5 s; the bearing too
+        var rd = best.pts.filter(function (p) { return t - p.t <= 1.2; });
+        var dm = median(rd.map(function (p) { return p.dist; })), dt = best.tPrev ? Math.min(2, t - best.tPrev) : 0, a = dt ? 1 - Math.exp(-dt / 1.5) : 1;
+        best.tPrev = t;
+        best.dist = fin(best.dist) && a < 1 ? best.dist + (dm - best.dist) * a : dm;
+        if (fin(m.brg)) best.brg = fin(best.brg) && a < 1 ? wrap360(best.brg + wrap180(m.brg - best.brg) * Math.min(1, a * 2)) : m.brg;
+        else best.brg = NaN;
         best.lead = fin(best.brg) ? leadOf(best.brg, best.dist, own) : NaN;
         // the tack, once the boat has been followed a few seconds; it stays until the motion says otherwise
         if (window.targetTack && fin(own.cog) && fin(own.twd) && own.sog > 1) {
@@ -307,15 +312,23 @@
     }
     if (/tgdebug/.test(location.search) && fin(st.hz)) { g.strokeStyle = "#ff0"; g.lineWidth = 1 * dpr; g.beginPath(); g.moveTo(0, oy + st.hz * s); g.lineTo(cw, oy + st.hz * s); g.stroke(); }
     st.last.forEach(function (T) {
-      var b = T.box, x = ox + b[0] * s, y = oy + b[1] * s, w = b[2] * s, h = b[3] * s;
-      var col = !fin(T.lead) ? "#8ecbff" : T.lead >= 0 ? "#3ddc84" : "#ff5b5b";
+      // the box glides to where the boat is; the numbers on screen move only for a real change (hysteresis)
+      if (!T.dbox) T.dbox = T.box.slice();
+      for (var i = 0; i < 4; i++) T.dbox[i] += (T.box[i] - T.dbox[i]) * 0.25;
+      var b = T.dbox, x = ox + b[0] * s, y = oy + b[1] * s, w = b[2] * s, h = b[3] * s;
+      T.shown = T.shown || {};
+      // far away a pixel is tens of metres: there the numbers go by 10 or 50 m, not by the metre
+      var hold = function (k, v, step, q) { if (!fin(v)) return v; var o = T.shown[k]; if (!fin(o) || Math.abs(v - o) >= step) T.shown[k] = Math.round(v / (q || 1)) * (q || 1); return T.shown[k]; };
+      var qd = T.dist > 500 ? 50 : T.dist > 150 ? 10 : 1;
+      var L = hold("lead", T.lead, Math.max(2, Math.abs(T.lead || 0) * 0.04), qd), Dd = hold("dist", T.dist, Math.max(3, T.dist * 0.04), qd), Bb = hold("brg", T.brg, 1.5);
+      var col = !fin(L) ? "#8ecbff" : L >= 0 ? "#3ddc84" : "#ff5b5b";
       g.strokeStyle = col; g.lineWidth = 3 * dpr; g.strokeRect(x, y, w, h);
-      var lead = !fin(T.lead) ? "?" : Math.abs(T.lead) < 1 ? "pari" : (T.lead >= 0 ? "+" : "−") + Math.round(Math.abs(T.lead)) + " m";
+      var lead = !fin(L) ? "?" : Math.abs(L) < 1 ? "pari" : (L >= 0 ? "+" : "−") + Math.abs(L) + " m";
       var tk = T.tack ? (T.tack === "stbd" ? " · S" : " · P") : "";
       g.textAlign = "center"; g.shadowColor = "#000"; g.shadowBlur = 4 * dpr;
       g.fillStyle = col; g.font = "700 " + 26 * dpr + "px 'Barlow Condensed',sans-serif"; g.fillText(lead, x + w / 2, y - 26 * dpr);
       g.fillStyle = "#fff"; g.font = "600 " + 15 * dpr + "px 'Barlow Condensed',sans-serif";
-      g.fillText("T" + T.id + " · " + Math.round(T.dist) + " m" + (fin(T.brg) ? " · " + ("00" + Math.round(T.brg)).slice(-3) + "°" : "") + tk, x + w / 2, y - 8 * dpr);
+      g.fillText("T" + T.id + " · " + Dd + " m" + (fin(Bb) ? " · " + ("00" + wrap360(Bb)).slice(-3) + "°" : "") + tk, x + w / 2, y - 8 * dpr);
       g.shadowBlur = 0;
     });
   }

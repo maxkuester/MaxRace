@@ -64,7 +64,8 @@ import java.util.List;
     name = "MaxRace",
     permissions = {
         @Permission(alias = "location", strings = { Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION }),
-        @Permission(alias = "notifications", strings = { "android.permission.POST_NOTIFICATIONS" })
+        @Permission(alias = "notifications", strings = { "android.permission.POST_NOTIFICATIONS" }),
+        @Permission(alias = "mic", strings = { Manifest.permission.RECORD_AUDIO })
     }
 )
 public class MaxRacePlugin extends Plugin implements LocationListener, SensorEventListener {
@@ -131,6 +132,18 @@ public class MaxRacePlugin extends Plugin implements LocationListener, SensorEve
                 nmea.stop();
                 synchronized (pending) { pending.clear(); }
                 break;
+            case "say":
+                say(b.getString("text", ""), b.optBoolean("flush", false));
+                break;
+            case "sayStop":
+                if (tts != null) tts.stop();
+                break;
+            case "listen":
+                if (getPermissionState("mic") != PermissionState.GRANTED) { requestPermissionForAlias("mic", call, "micPermission"); return; }
+                listen();
+                break;
+            case "voiceOn":
+                break;      // the earphone button is not wired on Android yet
             case "scan":
                 scanner.start();
                 break;
@@ -176,6 +189,59 @@ public class MaxRacePlugin extends Plugin implements LocationListener, SensorEve
                 break;
         }
         call.resolve();
+    }
+
+    @PermissionCallback
+    private void micPermission(PluginCall call) {
+        if (getPermissionState("mic") == PermissionState.GRANTED) listen();
+        else { JSObject o = new JSObject(); o.put("error", "Microfono non permesso: abilitalo in Impostazioni, App, MaxRace."); send("voiceState", o); }
+        call.resolve();
+    }
+
+    // ---------- voice: speaks in the earphones and listens in Italian ----------
+    private android.speech.tts.TextToSpeech tts;
+    private android.speech.SpeechRecognizer recognizer;
+    private void say(String text, boolean flush) {
+        if (tts == null) {
+            tts = new android.speech.tts.TextToSpeech(getContext(), st -> {
+                if (st == android.speech.tts.TextToSpeech.SUCCESS) { tts.setLanguage(java.util.Locale.ITALIAN); tts.speak(text, android.speech.tts.TextToSpeech.QUEUE_ADD, null, "mr"); }
+            });
+            return;
+        }
+        tts.speak(text, flush ? android.speech.tts.TextToSpeech.QUEUE_FLUSH : android.speech.tts.TextToSpeech.QUEUE_ADD, null, "mr");
+    }
+    private void listen() {
+        main.post(() -> {
+            if (!android.speech.SpeechRecognizer.isRecognitionAvailable(getContext())) {
+                JSObject o = new JSObject(); o.put("error", "Il riconoscimento vocale non c'è su questo telefono."); send("voiceState", o); return;
+            }
+            if (tts != null) tts.stop();
+            if (recognizer == null) recognizer = android.speech.SpeechRecognizer.createSpeechRecognizer(getContext());
+            recognizer.setRecognitionListener(new android.speech.RecognitionListener() {
+                private void done(Bundle r) {
+                    java.util.ArrayList<String> a = r != null ? r.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION) : null;
+                    JSObject o = new JSObject(); o.put("text", a != null && !a.isEmpty() ? a.get(0) : ""); o.put("final", true); send("heard", o);
+                }
+                @Override public void onResults(Bundle r) { done(r); }
+                @Override public void onError(int e) { done(null); }
+                @Override public void onPartialResults(Bundle r) {
+                    java.util.ArrayList<String> a = r.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION);
+                    if (a != null && !a.isEmpty()) { JSObject o = new JSObject(); o.put("text", a.get(0)); o.put("final", false); send("heard", o); }
+                }
+                @Override public void onReadyForSpeech(Bundle b) {}
+                @Override public void onBeginningOfSpeech() {}
+                @Override public void onRmsChanged(float v) {}
+                @Override public void onBufferReceived(byte[] b) {}
+                @Override public void onEndOfSpeech() {}
+                @Override public void onEvent(int t, Bundle b) {}
+            });
+            Intent i = new Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "it-IT");
+            i.putExtra(android.speech.RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
+            i.putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+            recognizer.startListening(i);
+        });
     }
 
     @PermissionCallback

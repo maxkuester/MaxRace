@@ -124,6 +124,7 @@ function startServer(opts) {
     if (p === "/icon.png" || p === "/apple-touch-icon.png") return sendFile(res, path.join(o.root, "build", "icon.png"));
     // the Targets camera: its script, the tack estimate and the boat detector (vendor/, fetched by scripts/fetch-vendor.js)
     if (p === "/targets.js") return sendFile(res, path.join(o.root, "targets.js"));
+    if (p === "/voice.js") return sendFile(res, path.join(o.root, "voice.js"));
     if (p === "/target-tack.js") return sendFile(res, path.join(o.root, "scripts", "target-tack.js"));
     if (p.startsWith("/vendor/")) {
       const f = path.normalize(path.join(o.root, p));

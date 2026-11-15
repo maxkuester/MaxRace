@@ -363,3 +363,133 @@ final class NetScan {
         return nil
     }
 }
+
+// Voice for the tactician: speaks in the earphones (AirPods), listens in Italian on the phone (no internet), and
+// the earphone stem (play/pause) starts listening. To get the stem MaxRace must be the "now playing" app, so while
+// it is on it plays silence; the audio background mode keeps it alive with the screen off.
+import AVFoundation
+import Speech
+import MediaPlayer
+
+final class VoiceIO: NSObject, AVSpeechSynthesizerDelegate {
+    var onHeard: ((String, Bool) -> Void)?
+    var onState: (([String: Any]) -> Void)?
+    var onStem: (() -> Void)?
+
+    private let synth = AVSpeechSynthesizer()
+    private let engine = AVAudioEngine()
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var task: SFSpeechRecognitionTask?
+    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "it-IT"))
+    private var silence: AVAudioPlayer?
+    private var stemOn = false
+    private var endTimer: Timer?
+    private var lastText = ""
+
+    override init() { super.init(); synth.delegate = self }
+
+    private func session() {
+        let s = AVAudioSession.sharedInstance()
+        try? s.setCategory(.playAndRecord, mode: .default, options: [.allowBluetooth, .allowBluetoothA2DP, .duckOthers, .defaultToSpeaker])
+        try? s.setActive(true)
+    }
+
+    func say(_ text: String, flush: Bool) {
+        session()
+        if flush { synth.stopSpeaking(at: .immediate) }
+        let u = AVSpeechUtterance(string: text)
+        u.voice = AVSpeechSynthesisVoice(language: "it-IT")
+        u.rate = 0.53
+        synth.speak(u)
+    }
+    func hush() { synth.stopSpeaking(at: .immediate) }
+
+    func listen() {
+        hush()
+        SFSpeechRecognizer.requestAuthorization { st in
+            DispatchQueue.main.async {
+                guard st == .authorized else { self.fail("Riconoscimento vocale non permesso: abilitalo in Impostazioni, MaxRace."); return }
+                AVAudioSession.sharedInstance().requestRecordPermission { ok in
+                    DispatchQueue.main.async { ok ? self.start() : self.fail("Microfono non permesso: abilitalo in Impostazioni, MaxRace.") }
+                }
+            }
+        }
+    }
+    private func fail(_ t: String) { onState?(["listening": false, "error": t]) }
+
+    private func start() {
+        guard let rec = recognizer, rec.isAvailable else { fail("Il riconoscimento in italiano non è disponibile su questo telefono."); return }
+        stopListening(send: false)
+        session()
+        let req = SFSpeechAudioBufferRecognitionRequest()
+        req.shouldReportPartialResults = true
+        if rec.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }   // at sea there is no internet
+        request = req; lastText = ""
+        let input = engine.inputNode, fmt = input.outputFormat(forBus: 0)
+        input.removeTap(onBus: 0)
+        input.installTap(onBus: 0, bufferSize: 1024, format: fmt) { buf, _ in req.append(buf) }
+        engine.prepare()
+        do { try engine.start() } catch { fail("Il microfono non parte."); return }
+        AudioServicesPlaySystemSound(1113)
+        onState?(["listening": true])
+        task = rec.recognitionTask(with: req) { [weak self] res, err in
+            guard let self = self else { return }
+            if let r = res {
+                self.lastText = r.bestTranscription.formattedString
+                if r.isFinal { self.finish() } else { self.onHeard?(self.lastText, false); self.armEnd(1.4) }
+            } else if err != nil { self.finish() }
+        }
+        armEnd(6)      // nothing said: give up after 6 s
+    }
+    // the question is over after a short pause
+    private func armEnd(_ s: TimeInterval) {
+        endTimer?.invalidate()
+        endTimer = Timer.scheduledTimer(withTimeInterval: s, repeats: false) { [weak self] _ in self?.finish() }
+    }
+    private var finishing = false
+    private func finish() {
+        if finishing { return }
+        finishing = true
+        let t = lastText
+        stopListening(send: true)
+        AudioServicesPlaySystemSound(1114)
+        onHeard?(t, true)
+        finishing = false
+    }
+    private func stopListening(send: Bool) {
+        endTimer?.invalidate(); endTimer = nil
+        if engine.isRunning { engine.stop() }
+        engine.inputNode.removeTap(onBus: 0)
+        request?.endAudio(); request = nil
+        task?.cancel(); task = nil
+    }
+
+    // earphone stem: MaxRace becomes the now-playing app with a silent loop, and play/pause starts listening
+    func setStem(_ on: Bool) {
+        stemOn = on
+        let cc = MPRemoteCommandCenter.shared()
+        [cc.togglePlayPauseCommand, cc.playCommand, cc.pauseCommand].forEach { $0.removeTarget(nil) }
+        if !on { silence?.stop(); silence = nil; MPNowPlayingInfoCenter.default().nowPlayingInfo = nil; return }
+        session()
+        if silence == nil, let p = try? AVAudioPlayer(data: VoiceIO.silentWav()) { p.numberOfLoops = -1; p.volume = 0; silence = p }
+        silence?.play()
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = [MPMediaItemPropertyTitle: "MaxRace", MPMediaItemPropertyArtist: "Premi per chiedere"]
+        for c in [cc.togglePlayPauseCommand, cc.playCommand, cc.pauseCommand] {
+            c.isEnabled = true
+            c.addTarget { [weak self] _ in DispatchQueue.main.async { self?.onStem?() }; return .success }
+        }
+    }
+    // one second of silence, 8 kHz mono 16 bit
+    static func silentWav() -> Data {
+        let rate: UInt32 = 8000, n = rate
+        var d = Data()
+        func u32(_ v: UInt32) { var x = v.littleEndian; d.append(Data(bytes: &x, count: 4)) }
+        func u16(_ v: UInt16) { var x = v.littleEndian; d.append(Data(bytes: &x, count: 2)) }
+        d.append("RIFF".data(using: .ascii)!); u32(36 + n * 2); d.append("WAVEfmt ".data(using: .ascii)!)
+        u32(16); u16(1); u16(1); u32(rate); u32(rate * 2); u16(2); u16(16)
+        d.append("data".data(using: .ascii)!); u32(n * 2); d.append(Data(count: Int(n * 2)))
+        return d
+    }
+    // after speaking, the silent loop must keep MaxRace as the now-playing app
+    func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish u: AVSpeechUtterance) { if stemOn && silence?.isPlaying == false { silence?.play() } }
+}

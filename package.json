@@ -32,6 +32,7 @@
       "scan.js",
       "maxrace.html",
       "targets.js",
+      "voice.js",
       "scripts/target-tack.js",
       "vendor/**",
       "fonts/**",

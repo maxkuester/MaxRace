@@ -429,7 +429,7 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
     <select id="boatSel" class="boatsel" aria-label="Boat"></select>
     <span class="pill sim" id="srcPill"><i></i><span id="srcText">Simulator</span></span>
     <span class="pill hide-sm" id="polarPill" title="Polar in use"><span id="polarText">Demo polar</span></span>
-    <div class="seg vsw" role="group" aria-label="View"><button id="vInst" aria-pressed="true">Dash</button><button id="vMap" aria-pressed="false">Map</button><button id="vBoth" aria-pressed="false" title="Dash numbers and map together"><span class="lg">Dash+Map</span><span class="sm">D+M</span></button><button id="vStart" aria-pressed="false">Start</button><button id="vCam" aria-pressed="false" title="Targets: find the other boats with the phone camera">Cam</button></div>
+    <div class="seg vsw" role="group" aria-label="View"><button id="vInst" aria-pressed="true">Dash</button><button id="vMap" aria-pressed="false">Map</button><button id="vBoth" aria-pressed="false" title="Dash numbers and map together"><span class="lg">Dash+Map</span><span class="sm">D+M</span></button><button id="vStart" aria-pressed="false">Start</button><button id="vCam" aria-pressed="false" title="Targets: find the other boats with the phone camera">Cam</button><button id="vMic" aria-pressed="false" title="Ask MaxRace (or press the earphone stem)">🎙</button></div>
     <div class="spacer"></div>
     <button class="btn racebtn" id="raceBtn" title="Record the race and get the post-race report">Race</button>
     <button class="btn" id="refBtn" title="Lock the current mean TWD as reference for the shift trace">Ref TWD</button>
@@ -789,6 +789,18 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
       <h3>Course</h3>
       <p>Marks, their GPS positions and the sequence to sail.</p>
       <button class="btn primary" id="openCrs">Course and marks</button>
+    </div>
+
+    <div>
+      <h3>Voice</h3>
+      <p>Ask MaxRace in Italian with 🎙 or by pressing the earphone stem: "incrocio le barche sopra?", "il vento?", "pinga la comitato", "linea", "boa", "layline", "velocità", "stop". The answer comes in the earphones.</p>
+      <div class="row" style="flex-wrap:wrap;gap:10px 18px">
+        <label><input type="checkbox" id="vcStem"> Earphone stem asks</label>
+        <label><input type="checkbox" id="vcShifts"> Say wind shifts over <input type="number" id="vcShiftDeg" min="2" max="20" style="width:52px"> °</label>
+        <label><input type="checkbox" id="vcCount"> Say the start countdown</label>
+        <label>Boat length <input type="number" id="vcLen" step="0.1" style="width:60px"> m</label>
+      </div>
+      <div class="msg" id="vcMsg"></div>
     </div>
 
     <div>
@@ -1660,6 +1672,7 @@ $("vMap").onclick=function(){setView("map");};
 $("vBoth").onclick=function(){setView("both");};
 $("vStart").onclick=function(){setView("start");};
 $("vCam").onclick=function(){if(window.MRTargets)window.MRTargets.open();};
+$("vMic").onclick=function(){if(window.MRVoice)window.MRVoice.listen();};
 $("zIn").onclick=function(){mapFit=false;mapS*=1.5;drawMap();$("zFit").setAttribute("aria-pressed","false");};
 $("zOut").onclick=function(){mapFit=false;mapS/=1.5;drawMap();$("zFit").setAttribute("aria-pressed","false");};
 $("zFit").onclick=function(){mapFit=true;drawMap();$("zFit").setAttribute("aria-pressed","true");};
@@ -1946,7 +1959,11 @@ window.MRN={
 window.MRT={own:function(){return S;},targets:targetsIn,nat:nat,native:NATIVE,
   // a mark placed by the camera goes into Course and marks (not in the sequence: the tactician decides that)
   addMark:function(name,lat,lon){var id=addMark(name,lat,lon,false);saveCourse();renderCourse();return id;},
-  moveMark:function(id,lat,lon){var m=markById(id);if(!m)return;m.lat=lat;m.lon=lon;saveCourse();renderCourse();}};
+  moveMark:function(id,lat,lon){var m=markById(id);if(!m)return;m.lat=lat;m.lon=lon;saveCourse();renderCourse();},
+  // for the voice (voice.js): what it reads out
+  hist:function(){return hist;},ais:function(){return ais;},cam:function(){return camTargets;},dest:dest,
+  startInfo:function(){return startInfo();},cdRem:function(){return cdRem(Date.now());},ping:function(w){ping(w);},
+  layInfo:function(){return layInfo();},dtwBtw:function(){return dtwBtw();},perfNow:function(){return perfNow();},vmc:function(){return vmcNow();}};
 // the Capacitor app sends the same calls as one event: {fn, arg}
 if(CAP)window.Capacitor.addListener("MaxRace","mrn",function(d){var f=d&&window.MRN[d.fn];if(f)f(d.arg);});
 
@@ -3833,5 +3850,23 @@ if(load("src","sim")==="sk"&&load("skurl","")){setSource("sk");connectSK(load("s
 </script>
 <script src="target-tack.js"></script>
 <script src="targets.js"></script>
+<script src="voice.js"></script>
+<script>
+// voice settings and the mic button state (voice.js)
+(function(){
+  var V=window.MRVoice;if(!V)return;
+  var el=function(id){return document.getElementById(id);};
+  el("vcStem").checked=V.cfg.stem;el("vcShifts").checked=V.cfg.shifts;el("vcShiftDeg").value=V.cfg.shiftDeg;el("vcCount").checked=V.cfg.countdown;el("vcLen").value=V.cfg.boatLen;
+  el("vcStem").onchange=function(){V.set("stem",this.checked);};
+  el("vcShifts").onchange=function(){V.set("shifts",this.checked);};
+  el("vcShiftDeg").onchange=function(){var x=+this.value;if(x>=2&&x<=20)V.set("shiftDeg",x);};
+  el("vcCount").onchange=function(){V.set("countdown",this.checked);};
+  el("vcLen").onchange=function(){var x=+this.value;if(x>2&&x<60)V.set("boatLen",x);};
+  var t0=0;
+  V.st.onState=function(o){el("vMic").setAttribute("aria-pressed",o.listening||o.watching?"true":"false");if(o.listening){el("vcMsg").textContent="Listening… "+(o.heard||"");}};
+  V.st.onSay=function(t){el("vcMsg").textContent=(V.st.heard?"« "+V.st.heard+" » → ":"")+t;};
+  V.init();
+})();
+</script>
 </body>
 </html>

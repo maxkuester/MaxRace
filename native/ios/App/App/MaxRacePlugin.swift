@@ -32,6 +32,7 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
 
     private let nmea = NMEASource()
     private let scanner = NetScan()
+    private let voice = VoiceIO()
     private var loc: CLLocationManager?
     private var gpsOn = false
     private var heading: Double = -1
@@ -51,6 +52,9 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
             if self.inFront { self.pending.append(contentsOf: lines) }
         }
         scanner.onState = { [weak self] st in self?.send("scan", st) }
+        voice.onHeard = { [weak self] t, fin in self?.send("heard", ["text": t, "final": fin]) }
+        voice.onState = { [weak self] o in self?.send("voiceState", o) }
+        voice.onStem = { [weak self] in self?.send("voiceState", ["stem": true]) }
         nmea.onStatus = { [weak self] ok, err in
             self?.raceLog.note(ok ? "source connected" : "source not connected: \(err ?? "")")
             var o: [String: Any] = ["connected": ok]
@@ -122,6 +126,14 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
             pending.removeAll()
         case "gps":
             setGps((b["on"] as? NSNumber)?.boolValue ?? false)
+        case "say":
+            voice.say(b["text"] as? String ?? "", flush: (b["flush"] as? NSNumber)?.boolValue ?? false)
+        case "sayStop":
+            voice.hush()
+        case "listen":
+            voice.listen()
+        case "voiceOn":
+            voice.setStem((b["on"] as? NSNumber)?.boolValue ?? false)
         case "scan":
             scanner.start()
         case "scanStop":

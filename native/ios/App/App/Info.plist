@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>MaxRace listens to the tactician's questions (press the earphone stem or the mic button) and answers in the earphones.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>MaxRace understands the tactician's questions in Italian, on the phone, without internet.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>MaxRace Targets uses the camera to find the other boats and measure their distance, bearing and lead.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
@@ -9,6 +13,7 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
+		<string>audio</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>MaxRace reads the boat instruments (NMEA 0183) from the gateway on the boat's Wi-Fi.</string>

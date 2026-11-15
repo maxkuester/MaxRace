@@ -20,8 +20,8 @@
   function load(k, d) { try { var v = localStorage.getItem("mrt." + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
   function save(k, v) { try { localStorage.setItem("mrt." + k, JSON.stringify(v)); } catch (e) {} }
 
-  var cfg = { mast: load("mast", 16), fov: load("fov", 67), align: load("align", 0), aligned: load("aligned", false) };
-  var st = { on: false, model: null, stream: null, az: NaN, azAt: 0, azSrc: "", tracks: [], nextId: 1, last: [], ms: 0, fps: 0, hz: NaN };
+  var cfg = { mast: load("mast", 16), fov: load("fov", 67), align: load("align", 0), aligned: load("aligned", false), markH: load("markH", 2) };
+  var st = { on: false, model: null, stream: null, az: NaN, azAt: 0, azSrc: "", tracks: [], nextId: 1, last: [], ms: 0, fps: 0, hz: NaN, zoom: 1, cands: [], marks: load("marks", []), sel: null, frameW: 0, frameH: 0 };
   var cv = document.createElement("canvas"), cx = cv.getContext("2d", { willReadFrequently: true });
 
   // ---------- the view ----------
@@ -33,18 +33,22 @@
     "#tgView .read{margin-left:auto;text-align:right;font-size:15px;line-height:1.15;text-shadow:0 1px 2px #000}#tgView .read b{font-size:22px}" +
     "#tgView .msg{position:absolute;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 12px);font-size:16px;text-shadow:0 1px 3px #000}" +
     "#tgView .set{position:absolute;right:12px;top:calc(env(safe-area-inset-top) + 60px);background:#000d;border:1px solid #fff4;border-radius:12px;padding:12px;font-size:16px;display:grid;gap:8px;max-width:300px}" +
-    "#tgView .set input{width:70px;font-size:17px;margin-left:6px}#tgView .set p{margin:0;font-size:14px;color:#ccc}";
+    "#tgView .set input{width:70px;font-size:17px;margin-left:6px}#tgView .set p{margin:0;font-size:14px;color:#ccc}" +
+    "#tgView video{transform-origin:50% 50%}" +
+    "#tgView .mk{position:absolute;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 44px);background:#000c;border:1px solid #f5b400;border-radius:12px;padding:10px 12px;display:grid;grid-template-columns:1fr auto auto;gap:6px 8px;align-items:center;font-size:16px}" +
+    "#tgView .mk b{font-size:20px;color:#f5b400}#tgView .mk small{grid-column:1 / -1;color:#ddd;font-size:14px}#tgView .mk button.go{background:#f5b400;color:#000;border-color:#f5b400}";
   function build() {
     if ($("tgView")) return;
     var s = document.createElement("style"); s.textContent = css; document.head.appendChild(s);
     var v = document.createElement("div"); v.id = "tgView"; v.hidden = true;
     v.innerHTML = '<video id="tgVid" playsinline muted autoplay></video><canvas id="tgCv"></canvas>' +
-      '<div class="bar"><button id="tgClose" aria-label="Close Targets">✕</button><button id="tgAlign">Align</button><button id="tgSet">⚙︎</button>' +
+      '<div class="bar"><button id="tgClose" aria-label="Close Targets">✕</button><button id="tgAlign">Align</button><button id="tgSet">⚙︎</button><button id="tgZoom" aria-label="Zoom">1×</button>' +
       '<div class="read"><div>CAM <b id="tgAz">---</b></div><div id="tgInfo"></div></div></div>' +
       '<div class="set" id="tgSetBox" hidden><label>Mast height above water, m<input id="tgMast" type="number" step="0.5"></label>' +
       '<label>Camera field of view (long side), °<input id="tgFov" type="number" step="0.5"></label>' +
+      '<label>Mark height above water, m<input id="tgMarkH" type="number" step="0.1"></label>' +
       '<p>Align: hold the phone pointing at the bow, along the boat, and tap Align. It takes the boat heading as where the camera points.</p></div>' +
-      '<div class="msg" id="tgMsg"></div>';
+      '<div class="mk" id="tgMk" hidden></div><div class="msg" id="tgMsg"></div>';
     document.body.appendChild(v);
     $("tgClose").onclick = close;
     $("tgSet").onclick = function () { $("tgSetBox").hidden = !$("tgSetBox").hidden; };
@@ -52,6 +56,11 @@
     $("tgMast").onchange = function () { var x = +this.value; if (x > 2 && x < 60) { cfg.mast = x; save("mast", x); } };
     $("tgFov").onchange = function () { var x = +this.value; if (x > 20 && x < 130) { cfg.fov = x; save("fov", x); } };
     $("tgAlign").onclick = alignNow;
+    $("tgMarkH").value = cfg.markH;
+    $("tgMarkH").onchange = function () { var x = +this.value; if (x > 0.2 && x < 20) { cfg.markH = x; save("markH", x); } };
+    // digital zoom: the middle of the picture, enlarged on screen and for the detectors (bearings stay exact)
+    $("tgZoom").onclick = function () { st.zoom = st.zoom >= 3 ? 1 : st.zoom + 1; this.textContent = st.zoom + "×"; $("tgVid").style.transform = "scale(" + st.zoom + ")"; };
+    $("tgCv").addEventListener("pointerdown", tap);
     showAlign();
   }
   function msg(t) { var m = $("tgMsg"); if (m) m.textContent = t || ""; }
@@ -226,10 +235,15 @@
     if (!W || !H) return Promise.resolve();
     var cam = camAz(), t0 = performance.now(), t = Date.now() / 1000;
     if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
-    cx.drawImage(vid, 0, 0, W, H);
+    var z = st.zoom, sw = W / z, sh = H / z;
+    cx.drawImage(vid, (W - sw) / 2, (H - sh) / 2, sw, sh, 0, 0, W, H);
+    st.frameW = W; st.frameH = H;
     return detect(W, H).then(function (dets) {
       st.ms = performance.now() - t0; st.fps = st.fps ? st.fps * 0.8 + 200 / Math.max(1, st.ms) : 1000 / Math.max(1, st.ms);
-      var f = (Math.max(W, H) / 2) / Math.tan(cfg.fov / 2 * D2R), own = ownNow();
+      var f = focal(W, H), own = ownNow();
+      // marks first: a small far shape that is all orange or yellow is a buoy, not a boat
+      st.cands = markBlobs(W, H, st.hz, f, cam);
+      dets = dets.filter(function (d) { return !((d.far || d.small) && st.cands.some(function (c) { return overlap(c.box, d.box).cont > 0.5; })); });
       var meas = dets.map(function (d) {
         var b = d.box, ang = Math.atan((b[0] + b[2] / 2 - W / 2) / f) * R2D;
         return { box: b, far: d.far, ang: ang, dist: cfg.mast * f / b[3], brg: fin(cam) ? wrap360(cam + ang) : NaN };
@@ -267,6 +281,7 @@
       st.tracks = st.tracks.filter(function (T) { return t - T.seen < 30; });
       st.last = st.tracks.filter(function (T) { return T.hits >= 3 && t - T.seen < 1.2; });
       publish(t);
+      followMarks(t, cam, f, own);
     });
   }
   // the targets in view go to the map (here) and to the other screens (through the MaxRace server)
@@ -282,6 +297,160 @@
       lastPost = t;
       try { fetch("/targets", { method: "POST", body: JSON.stringify(j) }).catch(function () {}); } catch (e) {}
     }
+  }
+
+  // ---------- course marks: found by colour, picked with a tap, placed from two or more bearings ----------
+  // focal length in pixels of the analysed frame: the zoom narrows the field of view
+  function focal(W, H) { return st.zoom * (Math.max(W, H) / 2) / Math.tan(cfg.fov / 2 * D2R); }
+  // race marks are orange, yellow or red and sit on the sea line: saturated warm blobs in a strip along the horizon
+  function markBlobs(W, H, hz, f, cam) {
+    if (!fin(hz)) return [];
+    var u = Math.max(W, H) / 1920, k = 2, y0 = Math.max(0, Math.round(hz - 70 * u)), y1 = Math.min(H, Math.round(hz + 30 * u));
+    var w = Math.floor(W / k), h = Math.floor((y1 - y0) / k); if (h < 3) return [];
+    var d = cx.getImageData(0, y0, W, y1 - y0).data, mask = new Uint8Array(w * h), x, y;
+    for (y = 0; y < h; y++) for (x = 0; x < w; x++) {
+      var i = ((y * k) * W + x * k) * 4, r = d[i], g = d[i + 1], b = d[i + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      if (mx < 110 || (mx - mn) / mx < 0.5 || b > g || r < g * 0.95) continue;        // warm: red >= green > blue, bright, saturated
+      var hue = mx === r ? 60 * (g - b) / (mx - mn) : 999;
+      if (hue >= 0 && hue <= 62) mask[y * w + x] = 1;
+    }
+    var lab = new Int32Array(w * h), out = [], n = 0;
+    for (var j = 0; j < w * h; j++) {
+      if (!mask[j] || lab[j]) continue;
+      n++; var stk = [j], ax = 1e9, bx = -1, ay = 1e9, by = -1, cnt = 0; lab[j] = n;
+      while (stk.length) {
+        var q = stk.pop(), qx = q % w, qy = (q / w) | 0; cnt++;
+        if (qx < ax) ax = qx; if (qx > bx) bx = qx; if (qy < ay) ay = qy; if (qy > by) by = qy;
+        var nb = [q - 1, q + 1, q - w, q + w];
+        for (var m = 0; m < 4; m++) { var r2 = nb[m]; if (r2 < 0 || r2 >= w * h || Math.abs((r2 % w) - qx) > 1) continue; if (mask[r2] && !lab[r2]) { lab[r2] = n; stk.push(r2); } }
+      }
+      var bw = (bx - ax + 1) * k, bh = (by - ay + 1) * k;
+      if (cnt < 2 || bw > 80 * u || bh > 80 * u || bw > bh * 3 + 4) continue;
+      var box = [ax * k, y0 + ay * k, bw, bh], ang = Math.atan((box[0] + bw / 2 - W / 2) / f) * R2D;
+      out.push({ box: box, ang: ang, brg: fin(cam) ? wrap360(cam + ang) : NaN });
+    }
+    return out.slice(0, 12);
+  }
+  // marks kept from an earlier session go on being followed from their last bearing
+  st.marks.forEach(function (M) { var L = M.sight && M.sight[M.sight.length - 1]; M.sight = M.sight || []; M.brg = L ? L.brg : NaN; });
+  function persistMarks() { save("marks", st.marks.map(function (M) { return { id: M.id, n: M.n, sight: M.sight, fix: M.fix, courseId: M.courseId }; })); }
+  // each followed mark: the nearest warm blob within a few degrees of where it was; a new bearing every 25 m we sail
+  function followMarks(t, cam, f, own) {
+    var S = window.MRT.own();
+    st.marks.forEach(function (M) {
+      if (!fin(cam) || !fin(M.brg)) return;
+      var best = null, bd = 3;
+      st.cands.forEach(function (c) { var da = Math.abs(wrap180(c.brg - M.brg)); if (da < bd) { bd = da; best = c; } });
+      if (!best) return;
+      M.box = best.box; M.seen = t; M.brg = wrap360(M.brg + wrap180(best.brg - M.brg) * 0.5);
+      M.hdist = cfg.markH * f / Math.max(2, best.box[3]);
+      if (fin(S.lat) && fin(S.lon)) {
+        var L = M.sight[M.sight.length - 1];
+        if (!L || distM(L.lat, L.lon, S.lat, S.lon) > 25 || t - L.t > 30) { M.sight.push({ t: t, brg: Math.round(M.brg * 10) / 10, lat: S.lat, lon: S.lon }); M.sight = M.sight.slice(-30); fixMark(M); persistMarks(); }
+      }
+    });
+    if (st.sel) markBar();
+  }
+  function distM(a1, o1, a2, o2) { var dy = (a2 - a1) * 111120, dx = (o2 - o1) * 111120 * Math.cos(a1 * D2R); return Math.hypot(dx, dy); }
+  // the mark where the bearing lines cross (least squares over all of them); needs lines at least 8 degrees apart
+  // the mark where the bearing lines cross; a bearing that does not agree with the others by more than 6 degrees
+  // (another buoy for a moment, a compass jump) is left out, the worst first, as long as two remain
+  function fixMark(M) {
+    var use = M.sight.slice();
+    for (;;) {
+      var f = crossing(use);
+      if (f && f.worst.res <= 6) { M.fix = f.fix; M.spread = f.spread; M.dropped = M.sight.length - use.length; break; }
+      if (use.length <= 2) { M.fix = null; M.spread = f ? f.spread : spreadOf(use); break; }
+      var k = f ? f.worst.i : worstAgainstRest(use);
+      use.splice(k, 1);
+    }
+    if (M.fix && M.courseId) window.MRT.moveMark(M.courseId, M.fix.lat, M.fix.lon);
+  }
+  function spreadOf(P) { var lo = 1e9, hi = -1e9; P.forEach(function (p) { var r = wrap180(p.brg - P[0].brg); if (r < lo) lo = r; if (r > hi) hi = r; }); return P.length ? hi - lo : 0; }
+  // without a crossing, the bearing farthest from the median direction goes first
+  function worstAgainstRest(P) {
+    var med = median(P.map(function (p) { return wrap180(p.brg - P[0].brg); })), wi = 0, wd = -1;
+    P.forEach(function (p, i) { var d = Math.abs(wrap180(p.brg - P[0].brg) - med); if (d > wd) { wd = d; wi = i; } });
+    return wi;
+  }
+  function crossing(P) {
+    if (P.length < 2) return null;
+    var lat0 = P[0].lat, lon0 = P[0].lon, kx = 111120 * Math.cos(lat0 * D2R), ky = 111120;
+    var a = 0, b = 0, c = 0, e1 = 0, e2 = 0, spread = spreadOf(P);
+    P.forEach(function (p) {
+      var x = (p.lon - lon0) * kx, y = (p.lat - lat0) * ky, nx = Math.cos(p.brg * D2R), ny = -Math.sin(p.brg * D2R);
+      a += nx * nx; b += nx * ny; c += ny * ny; var dd = nx * x + ny * y; e1 += nx * dd; e2 += ny * dd;
+    });
+    var det = a * c - b * b;
+    if (spread < 8) return { fix: null, spread: spread, worst: { res: 0, i: 0 } };      // lines too parallel yet: keep sailing
+    if (Math.abs(det) < 1e-6) return null;
+    var X = (c * e1 - b * e2) / det, Y = (a * e2 - b * e1) / det, worst = { res: -1, i: 0 };
+    // how far each bearing is from pointing at the crossing (a mark behind a line counts as 180 degrees off)
+    P.forEach(function (p, i) {
+      var x = (p.lon - lon0) * kx, y = (p.lat - lat0) * ky, to = Math.atan2(X - x, Y - y) * R2D, r = Math.abs(wrap180(to - p.brg));
+      if (r > worst.res) worst = { res: r, i: i };
+    });
+    var L = P[P.length - 1], dist = Math.hypot(X - (L.lon - lon0) * kx, Y - (L.lat - lat0) * ky);
+    return { spread: spread, worst: worst, fix: { lat: lat0 + Y / ky, lon: lon0 + X / kx, n: P.length,
+      err: Math.round(dist * Math.sin(1.5 * D2R) / Math.sin(Math.min(90, spread) * D2R) * Math.sqrt(2 / P.length)) } };   // 1.5 deg per bearing, better with more
+  }
+  // a tap on the picture: on a mark already followed, select it; on a blob or anywhere near the horizon, a new mark
+  function tap(e) {
+    var c = $("tgCv"), r = c.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    var vw = st.frameW, vh = st.frameH; if (!vw) return;
+    var cw = c.width, ch = c.height, s = Math.max(cw / vw, ch / vh);
+    var px = ((e.clientX - r.left) * dpr - cw / 2) / s + vw / 2, py = ((e.clientY - r.top) * dpr - ch / 2) / s + vh / 2;
+    var near = function (b, tol) { return px > b[0] - tol && px < b[0] + b[2] + tol && py > b[1] - tol && py < b[1] + b[3] + tol; };
+    var tol = 30 * dpr / s;
+    var hit = st.marks.filter(function (M) { return M.box && st.on && near(M.box, tol); })[0];
+    if (hit) { st.sel = hit.id; markBar(); return; }
+    var cam = camAz(); if (!fin(cam)) { msg("No compass yet: a mark needs a bearing."); return; }
+    var f = focal(vw, vh), blob = st.cands.filter(function (b) { return near(b.box, tol); })[0];
+    var box = blob ? blob.box : [px - 6, py - 6, 12, 12], ang = Math.atan((box[0] + box[2] / 2 - vw / 2) / f) * R2D;
+    var n = 1; while (st.marks.some(function (M) { return M.n === "B" + n; })) n++;
+    var M = { id: "k" + Date.now().toString(36), n: "B" + n, brg: wrap360(cam + ang), box: box, seen: Date.now() / 1000, sight: [] };
+    var S = window.MRT.own();
+    if (fin(S.lat)) M.sight.push({ t: M.seen, brg: Math.round(M.brg * 10) / 10, lat: S.lat, lon: S.lon });
+    st.marks.push(M); st.sel = M.id; persistMarks(); markBar();
+  }
+  function markBar() {
+    var el = $("tgMk"), M = st.marks.filter(function (x) { return x.id === st.sel; })[0];
+    if (!M) { el.hidden = true; return; }
+    var S = window.MRT.own(), d, info;
+    if (M.fix && fin(S.lat)) {
+      d = distM(S.lat, S.lon, M.fix.lat, M.fix.lon);
+      var by = Math.atan2((M.fix.lon - S.lon) * Math.cos(S.lat * D2R), M.fix.lat - S.lat) * R2D;
+      info = Math.round(d) + " m · " + ("00" + Math.round(wrap360(by))).slice(-3) + "° · placed ±" + M.fix.err + " m from " + M.fix.n + " bearings";
+    } else {
+      info = (fin(M.brg) ? ("00" + Math.round(M.brg)).slice(-3) + "°" : "") + (fin(M.hdist) ? " · ~" + Math.round(M.hdist / 10) * 10 + " m" : "") +
+        " · " + (M.sight.length < 2 ? "sail on 150–300 m with it in view to place it" : "keep it in view, the bearings must open up (" + Math.round(M.spread || 0) + "° of 8°)");
+    }
+    var h = "<b>" + M.n + "</b>" + (M.fix ? '<button class="go" id="tgMkUse">' + (M.courseId ? "In course ✓" : "Use as mark") + "</button>" : "<span></span>") +
+      '<button id="tgMkDel">Delete</button><small>' + info + "</small>";
+    if (el.innerHTML !== h) {
+      el.innerHTML = h; el.hidden = false;
+      if ($("tgMkUse")) $("tgMkUse").onclick = function () {
+        if (!M.courseId && M.fix) { M.courseId = window.MRT.addMark(M.n, M.fix.lat, M.fix.lon); persistMarks(); msg(M.n + " is in Course and marks, and on the map."); markBar(); }
+      };
+      $("tgMkDel").onclick = function () { st.marks = st.marks.filter(function (x) { return x.id !== M.id; }); st.sel = null; persistMarks(); markBar(); };
+    }
+  }
+  function drawMarks(g, ox, oy, s, dpr) {
+    g.setLineDash([4 * dpr, 4 * dpr]); g.strokeStyle = "#f5b40099"; g.lineWidth = 2 * dpr;
+    st.cands.forEach(function (c) {
+      if (st.marks.some(function (M) { return M.box === c.box; })) return;
+      var b = c.box; g.beginPath(); g.arc(ox + (b[0] + b[2] / 2) * s, oy + (b[1] + b[3] / 2) * s, Math.max(10 * dpr, b[3] * s), 0, 7); g.stroke();
+    });
+    g.setLineDash([]);
+    var t = Date.now() / 1000;
+    st.marks.forEach(function (M) {
+      if (!M.box || t - (M.seen || 0) > 3) return;
+      var b = M.box, x = ox + (b[0] + b[2] / 2) * s, y = oy + (b[1] + b[3] / 2) * s, R = Math.max(14 * dpr, b[3] * s * 0.8);
+      g.strokeStyle = "#f5b400"; g.lineWidth = (M.id === st.sel ? 4 : 2.5) * dpr;
+      g.beginPath(); g.moveTo(x, y - R); g.lineTo(x + R, y); g.lineTo(x, y + R); g.lineTo(x - R, y); g.closePath(); g.stroke();
+      g.textAlign = "center"; g.shadowColor = "#000"; g.shadowBlur = 4 * dpr; g.fillStyle = "#f5b400"; g.font = "700 " + 18 * dpr + "px 'Barlow Condensed',sans-serif";
+      g.fillText(M.n + (M.fix ? " ✓" : " · " + M.sight.length), x, y - R - 6 * dpr); g.shadowBlur = 0;
+    });
   }
 
   // ---------- drawing over the picture ----------
@@ -300,7 +469,7 @@
     $("tgInfo").textContent = (fin(own.twd) ? "TWD " + Math.round(own.twd) + "° · " : "no TWD · ") + st.last.length + " target" + (st.last.length === 1 ? "" : "s") + (st.ms ? " · " + Math.round(st.ms) + " ms" : "");
     // parity: the line through us square to TWD, where it meets the horizon in the picture (a mark on the edge)
     if (fin(cam) && fin(own.twd) && fin(st.hz)) {
-      var f = (Math.max(vw, vh) / 2) / Math.tan(cfg.fov / 2 * D2R);
+      var f = focal(vw, vh);
       [own.twd + 90, own.twd - 90].forEach(function (pb) {
         var rel = wrap180(pb - cam); if (Math.abs(rel) > 80) return;
         var x = ox + (vw / 2 + f * Math.tan(rel * D2R)) * s, y = oy + st.hz * s;
@@ -311,6 +480,7 @@
       });
     }
     if (/tgdebug/.test(location.search) && fin(st.hz)) { g.strokeStyle = "#ff0"; g.lineWidth = 1 * dpr; g.beginPath(); g.moveTo(0, oy + st.hz * s); g.lineTo(cw, oy + st.hz * s); g.stroke(); }
+    drawMarks(g, ox, oy, s, dpr);
     st.last.forEach(function (T) {
       // the box glides to where the boat is; the numbers on screen move only for a real change (hysteresis)
       if (!T.dbox) T.dbox = T.box.slice();
@@ -367,5 +537,5 @@
     compassOff();
     var v = $("tgView"); if (v) v.hidden = true;
   }
-  window.MRTargets = { open: open, close: close, st: st };
+  window.MRTargets = { open: open, close: close, st: st, fixMark: fixMark };
 })();

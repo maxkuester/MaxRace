@@ -1943,7 +1943,10 @@ window.MRN={
   targets:function(j){targetsIn(j);}
 };
 // for the Targets camera (targets.js): our state, where its targets go, the native side
-window.MRT={own:function(){return S;},targets:targetsIn,nat:nat,native:NATIVE};
+window.MRT={own:function(){return S;},targets:targetsIn,nat:nat,native:NATIVE,
+  // a mark placed by the camera goes into Course and marks (not in the sequence: the tactician decides that)
+  addMark:function(name,lat,lon){var id=addMark(name,lat,lon,false);saveCourse();renderCourse();return id;},
+  moveMark:function(id,lat,lon){var m=markById(id);if(!m)return;m.lat=lat;m.lon=lon;saveCourse();renderCourse();}};
 // the Capacitor app sends the same calls as one event: {fn, arg}
 if(CAP)window.Capacitor.addListener("MaxRace","mrn",function(d){var f=d&&window.MRN[d.fn];if(f)f(d.arg);});
 

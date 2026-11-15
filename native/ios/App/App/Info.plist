@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSCameraUsageDescription</key>
+	<string>MaxRace Targets uses the camera to find the other boats and measure their distance, bearing and lead.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>MaxRace uses the GPS for the boat position, speed and course when there are no instruments, and for the race track. While a race is recorded it keeps MaxRace running with the screen off, so the whole race is logged.</string>
 	<key>UIBackgroundModes</key>

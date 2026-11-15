@@ -419,7 +419,7 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
     <select id="boatSel" class="boatsel" aria-label="Boat"></select>
     <span class="pill sim" id="srcPill"><i></i><span id="srcText">Simulator</span></span>
     <span class="pill hide-sm" id="polarPill" title="Polar in use"><span id="polarText">Demo polar</span></span>
-    <div class="seg vsw" role="group" aria-label="View"><button id="vInst" aria-pressed="true">Dash</button><button id="vMap" aria-pressed="false">Map</button><button id="vBoth" aria-pressed="false" title="Dash numbers and map together"><span class="lg">Dash+Map</span><span class="sm">D+M</span></button><button id="vStart" aria-pressed="false">Start</button></div>
+    <div class="seg vsw" role="group" aria-label="View"><button id="vInst" aria-pressed="true">Dash</button><button id="vMap" aria-pressed="false">Map</button><button id="vBoth" aria-pressed="false" title="Dash numbers and map together"><span class="lg">Dash+Map</span><span class="sm">D+M</span></button><button id="vStart" aria-pressed="false">Start</button><button id="vCam" aria-pressed="false" title="Targets: find the other boats with the phone camera">Cam</button></div>
     <div class="spacer"></div>
     <button class="btn racebtn" id="raceBtn" title="Record the race and get the post-race report">Race</button>
     <button class="btn" id="refBtn" title="Lock the current mean TWD as reference for the shift trace">Ref TWD</button>
@@ -1432,6 +1432,7 @@ function sizeMap(){
 }
 if(window.ResizeObserver)new ResizeObserver(function(){if((view==="map"||view==="both")){sizeMap();drawMap();}}).observe($("mapBox"));
 function drawMap(){
+  if(targetsWaiting&&fin(S.lat)){targetsIn(targetsWaiting);return;}
   var c=$("map"),ctx=c.getContext("2d"),W=c.width,H=c.height,d=window.devicePixelRatio||1;
   var cs=getComputedStyle(document.documentElement),col=function(n){return cs.getPropertyValue(n).trim();};
   ctx.fillStyle=col("--face");ctx.fillRect(0,0,W,H);
@@ -1608,13 +1609,19 @@ function drawMap(){
   // camera targets: last fix, a diamond; our lead on the ladder (+ we are ahead, green) worked out from where we are now
   Object.keys(camTargets).forEach(function(id){
     var tg=camTargets[id],age=(nowA-tg.t)/1000;if(age>600)return;
-    var R0=nm(tg.lat,tg.lon),p=sc(R0),fade=Math.max(0.35,1-age/300);
+    // where it is now: the fix carried on with our COG/SOG of that moment (at most 5 minutes, then it is only a memory)
+    var at=tg.cog!=null&&tg.sog>0?dest(tg.lat,tg.lon,tg.cog,tg.sog*Math.min(Math.max(age,0),300)/3600):tg;
+    var R0=nm(at.lat,at.lon),p=sc(R0),fade=Math.max(0.35,1-age/300);
     var lead=null;if(wv){var upw=(R0[0]*wv[0]+R0[1]*wv[1])*1852;lead=goingUp?-upw:upw;}
     var cc=lead==null?col("--accent"):lead>=0?col("--stbd"):col("--port");
-    ctx.save();ctx.globalAlpha=fade;ctx.translate(p[0],p[1]);ctx.rotate(Math.PI/4);
-    ctx.strokeStyle=cc;ctx.lineWidth=2.5*d;ctx.strokeRect(-6*d,-6*d,12*d,12*d);if(age<15){ctx.fillStyle=cc;ctx.fillRect(-6*d,-6*d,12*d,12*d);}ctx.restore();
+    // an arrow on its course (filled while the fix is fresh); a diamond if we know no course at all
+    ctx.save();ctx.globalAlpha=fade;ctx.translate(p[0],p[1]);ctx.strokeStyle=cc;ctx.fillStyle=cc;ctx.lineWidth=2.5*d;ctx.beginPath();
+    if(tg.cog!=null){ctx.rotate(tg.cog*D2R);ctx.moveTo(0,-14*d);ctx.lineTo(7*d,9*d);ctx.lineTo(0,5*d);ctx.lineTo(-7*d,9*d);ctx.closePath();
+      if(!tg.tackKnown)ctx.setLineDash([3*d,3*d]);}
+    else{ctx.rotate(Math.PI/4);ctx.rect(-6*d,-6*d,12*d,12*d);}
+    ctx.stroke();if(age<15)ctx.fill();ctx.restore();
     ctx.save();ctx.globalAlpha=fade;
-    tag((tg.name||"T"+id)+(age>=60?" · "+Math.round(age/60)+"′":""),p[0]+11*d,p[1]-9*d,col("--ink"),11,"left");
+    tag((tg.name||(/^\d/.test(id)?"T"+id:id))+(age>=60?" · "+Math.round(age/60)+"′":""),p[0]+11*d,p[1]-9*d,col("--ink"),11,"left");
     if(lead!=null)tag(Math.abs(lead)<1?"pari":(lead>=0?"+":"−")+Math.abs(Math.round(lead))+" m",p[0]+11*d,p[1]+7*d,cc,13,"left");
     ctx.restore();
   });
@@ -1638,6 +1645,7 @@ $("vInst").onclick=function(){setView("inst");};
 $("vMap").onclick=function(){setView("map");};
 $("vBoth").onclick=function(){setView("both");};
 $("vStart").onclick=function(){setView("start");};
+$("vCam").onclick=function(){if(window.MRTargets)window.MRTargets.open();};
 $("zIn").onclick=function(){mapFit=false;mapS*=1.5;drawMap();$("zFit").setAttribute("aria-pressed","false");};
 $("zOut").onclick=function(){mapFit=false;mapS/=1.5;drawMap();$("zFit").setAttribute("aria-pressed","false");};
 $("zFit").onclick=function(){mapFit=true;drawMap();$("zFit").setAttribute("aria-pressed","true");};
@@ -1840,13 +1848,21 @@ function connectNM(){
    {id, brg (true deg), dist (m), t (ms)}; it is placed on the chart from our own position at that moment and
    kept there (its last known position), fading with age. The lead on the ladder is worked out live on the map. */
 var camTargets={};
+// targets that arrive before we have a position (the server sends the last ones as soon as we connect) wait for it
+var targetsWaiting=null;
 function targetsIn(j){
   var list=(j&&j.targets)||[],own=j&&j.own&&fin(j.own.lat)?j.own:(fin(S.lat)?{lat:S.lat,lon:S.lon}:null);
-  if(!own)return;
+  if(!own){targetsWaiting=j;return;}
+  targetsWaiting=null;
+  // our COG/SOG at the fix: a boat of the same fleet sails about as we do, so the target is carried along with it.
+  // On the other tack (x.tack "port"/"stbd" differs from ours) it sails our course mirrored on the wind: TWA 42 -> 84 apart.
+  var cog=fin(S.cog)?S.cog:S.hdg,sog=fin(S.sog)?S.sog:S.bsp,twd=S.twd;
+  var ourTack=fin(cog)&&fin(twd)?(((twd-cog+540)%360-180)<0?"port":"stbd"):null;
   list.forEach(function(x){
     if(!fin(x.brg)||!fin(x.dist))return;
-    var p=dest(own.lat,own.lon,x.brg,x.dist/1852);
-    camTargets[String(x.id)]={lat:p.lat,lon:p.lon,brg:x.brg,dist:x.dist,t:fin(x.t)?x.t:Date.now(),name:x.name||null};
+    var p=dest(own.lat,own.lon,x.brg,x.dist/1852),tk=x.tack==="port"||x.tack==="stbd"?x.tack:null;
+    var tc=fin(cog)?(tk&&ourTack&&tk!==ourTack?wrap360(2*twd-cog):cog):null;
+    camTargets[String(x.id)]={lat:p.lat,lon:p.lon,brg:x.brg,dist:x.dist,t:fin(x.t)?x.t:Date.now(),name:x.name||null,cog:tc,sog:fin(sog)?sog:0,tack:tk||ourTack,tackKnown:!!tk};
   });
   if(view==="map"||view==="both")drawMap();
 }
@@ -1868,6 +1884,8 @@ window.MRN={
   recLog:function(c){if(natRead)natRead(c);},
   targets:function(j){targetsIn(j);}
 };
+// for the Targets camera (targets.js): our state, where its targets go, the native side
+window.MRT={own:function(){return S;},targets:targetsIn,nat:nat,native:NATIVE};
 // the Capacitor app sends the same calls as one event: {fn, arg}
 if(CAP)window.Capacitor.addListener("MaxRace","mrn",function(d){var f=d&&window.MRN[d.fn];if(f)f(d.arg);});
 
@@ -3746,5 +3764,7 @@ if(HOSTED){
 if(load("src","sim")==="sk"&&load("skurl","")){setSource("sk");connectSK(load("skurl",""));}
 })();
 </script>
+<script src="target-tack.js"></script>
+<script src="targets.js"></script>
 </body>
 </html>

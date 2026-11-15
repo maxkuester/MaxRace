@@ -20,6 +20,7 @@
 import UIKit
 import Capacitor
 import CoreLocation
+import CoreMotion
 
 @objc(MaxRacePlugin)
 public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelegate {
@@ -40,6 +41,7 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
     private var recording = false
     private var inFront = true
     private var bgTask: UIBackgroundTaskIdentifier = .invalid
+    private let motion = CMMotionManager()
 
     override public func load() {
         nmea.onLines = { [weak self] lines in
@@ -118,6 +120,8 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
             pending.removeAll()
         case "gps":
             setGps((b["on"] as? NSNumber)?.boolValue ?? false)
+        case "camDir":
+            camDir((b["on"] as? NSNumber)?.boolValue ?? false)
         case "save":
             saveRace(b)
         case "share":
@@ -209,6 +213,29 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
     }
 
     // MARK: phone GPS
+
+    // Targets camera: where the back camera points (true north when the phone knows where it is), 15 times a second.
+    // CoreMotion gives the phone attitude; the camera looks along the phone's -z axis, projected on the horizon.
+    private func camDir(_ on: Bool) {
+        if !on { motion.stopDeviceMotionUpdates(); return }
+        guard motion.isDeviceMotionAvailable else { send("camDir", ["error": "no motion sensors"]); return }
+        let frames = CMMotionManager.availableAttitudeReferenceFrames()
+        let ref: CMAttitudeReferenceFrame = frames.contains(.xTrueNorthZVertical) ? .xTrueNorthZVertical : .xMagneticNorthZVertical
+        motion.deviceMotionUpdateInterval = 1.0 / 15
+        motion.startDeviceMotionUpdates(using: ref, to: .main) { [weak self] dm, _ in
+            guard let self = self, let dm = dm else { return }
+            let m = dm.attitude.rotationMatrix, g = dm.gravity
+            // which way the matrix turns: gravity in the phone frame is minus its third column, or minus its third row
+            let byCol = abs(g.x + m.m13) + abs(g.y + m.m23) + abs(g.z + m.m33)
+            let byRow = abs(g.x + m.m31) + abs(g.y + m.m32) + abs(g.z + m.m33)
+            // the camera axis in the reference frame: x north, y west, z up
+            let f = byCol <= byRow ? (-m.m31, -m.m32, -m.m33) : (-m.m13, -m.m23, -m.m33)
+            var az = atan2(-f.1, f.0) * 180 / .pi
+            if az < 0 { az += 360 }
+            let pitch = asin(max(-1, min(1, f.2))) * 180 / .pi
+            self.send("camDir", ["az": az, "pitch": pitch, "ref": ref == .xTrueNorthZVertical ? "true" : "mag"])
+        }
+    }
 
     private func setGps(_ on: Bool) {
         guard let loc = loc else { return }

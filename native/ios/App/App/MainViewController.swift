@@ -4,7 +4,6 @@ import Capacitor
 
 final class MainViewController: CAPBridgeViewController {
     override var prefersStatusBarHidden: Bool { true }
-    override var prefersHomeIndicatorAutoHidden: Bool { true }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .all }
 
     override func capacitorDidLoad() {

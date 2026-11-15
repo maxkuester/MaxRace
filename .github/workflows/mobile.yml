@@ -29,6 +29,7 @@ jobs:
       - name: Page, fonts and plugins into the Android project
         run: |
           node scripts/fetch-fonts.js
+          node scripts/fetch-vendor.js
           node scripts/build-native-web.js
           npx cap sync android
       - name: Build the APK
@@ -57,6 +58,7 @@ jobs:
       - name: Page, fonts and plugins into the iOS project
         run: |
           node scripts/fetch-fonts.js
+          node scripts/fetch-vendor.js
           node scripts/build-native-web.js
           npx cap sync ios
       - name: Unsigned build

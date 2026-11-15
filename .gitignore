@@ -3,3 +3,5 @@ dist/
 fonts/
 # built by scripts/build-native-web.js before every cap sync
 native/www/
+# boat detector for Targets, fetched by scripts/fetch-vendor.js
+vendor/

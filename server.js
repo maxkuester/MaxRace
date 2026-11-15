@@ -14,7 +14,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".woff2": "font/woff2", ".png": "image/png", ".json": "application/json" };
+const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".woff2": "font/woff2", ".png": "image/png", ".json": "application/json", ".js": "text/javascript; charset=utf-8" };
 
 function createSource(log) {
   const clients = new Set();
@@ -121,6 +121,14 @@ function startServer(opts) {
     if (p === "/" || p === "/index.html") return sendFile(res, path.join(o.root, o.page));
     // home-screen icon for phones and tablets ("Add to Home Screen")
     if (p === "/icon.png" || p === "/apple-touch-icon.png") return sendFile(res, path.join(o.root, "build", "icon.png"));
+    // the Targets camera: its script, the tack estimate and the boat detector (vendor/, fetched by scripts/fetch-vendor.js)
+    if (p === "/targets.js") return sendFile(res, path.join(o.root, "targets.js"));
+    if (p === "/target-tack.js") return sendFile(res, path.join(o.root, "scripts", "target-tack.js"));
+    if (p.startsWith("/vendor/")) {
+      const f = path.normalize(path.join(o.root, p));
+      if (!f.startsWith(path.join(o.root, "vendor") + path.sep)) return json(res, { ok: false, error: "not found" }, 404);
+      return sendFile(res, f);
+    }
     if (p.startsWith("/fonts/")) {
       const f = path.normalize(path.join(o.root, p));
       if (!f.startsWith(path.join(o.root, "fonts"))) return json(res, { ok: false, error: "not found" }, 404);

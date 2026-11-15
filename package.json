@@ -12,7 +12,8 @@
     "dist": "node scripts/fetch-fonts.js && electron-builder --publish never",
     "server": "node server.js",
     "cap:web": "node scripts/build-native-web.js",
-    "cap:sync": "node scripts/fetch-fonts.js && node scripts/build-native-web.js && cap sync"
+    "vendor": "node scripts/fetch-vendor.js",
+    "cap:sync": "node scripts/fetch-fonts.js && node scripts/fetch-vendor.js && node scripts/build-native-web.js && cap sync"
   },
   "devDependencies": {
     "@capacitor/android": "8.6.0",

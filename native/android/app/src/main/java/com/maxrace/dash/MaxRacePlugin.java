@@ -129,6 +129,9 @@ public class MaxRacePlugin extends Plugin implements LocationListener, SensorEve
                 nmea.stop();
                 synchronized (pending) { pending.clear(); }
                 break;
+            case "camDir":
+                camDir(b.optBoolean("on", false));
+                break;
             case "gps":
                 if (b.optBoolean("on", false)) {
                     if (getPermissionState("location") != PermissionState.GRANTED) {
@@ -291,6 +294,39 @@ public class MaxRacePlugin extends Plugin implements LocationListener, SensorEve
     }
 
     @Override public void onAccuracyChanged(Sensor s, int a) {}
+
+    // ---------- Targets camera: where the back camera points, true north, 15 times a second ----------
+    // The rotation vector gives phone -> world (east, north, up); the camera looks along the phone's -z axis.
+    private final float[] camRot = new float[9];
+    private long camLast = 0;
+    private final SensorEventListener camListener = new SensorEventListener() {
+        @Override public void onSensorChanged(SensorEvent e) {
+            long now = System.currentTimeMillis();
+            if (now - camLast < 66) return;
+            camLast = now;
+            SensorManager.getRotationMatrixFromVector(camRot, e.values);
+            double east = -camRot[2], north = -camRot[5], up = -camRot[8];
+            double az = Math.toDegrees(Math.atan2(east, north)) + declination;
+            JSObject o = new JSObject();
+            o.put("az", ((az % 360) + 360) % 360);
+            o.put("pitch", Math.toDegrees(Math.asin(Math.max(-1, Math.min(1, up)))));
+            o.put("ref", declination != 0 ? "true" : "mag");
+            send("camDir", o);
+        }
+        @Override public void onAccuracyChanged(Sensor s, int a) {}
+    };
+
+    private void camDir(boolean on) {
+        main.post(() -> {
+            SensorManager sm = (SensorManager) getContext().getSystemService(Context.SENSOR_SERVICE);
+            if (sm == null) return;
+            sm.unregisterListener(camListener);
+            if (!on) return;
+            Sensor rv = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
+            if (rv == null) { send("camDir", "no rotation sensor"); return; }
+            sm.registerListener(camListener, rv, SensorManager.SENSOR_DELAY_GAME);
+        });
+    }
 
     // ---------- races in Documents › MaxRace › Races ----------
 

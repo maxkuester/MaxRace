@@ -428,13 +428,19 @@ final class VoiceIO: NSObject, AVSpeechSynthesizerDelegate {
         session()
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
+        // sailing words the Italian dictation does not know: "layline" came out as "eye-liner"
+        req.contextualStrings = ["layline", "lay line", "pinga", "comitato", "pin", "incrocio", "incroci", "sopravento", "sottovento", "boa", "bolina", "countdown", "sincro", "brucio", "bruciare", "mure", "VMG", "target"]
         if rec.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }   // at sea there is no internet
         request = req; lastText = ""
         let input = engine.inputNode, fmt = input.outputFormat(forBus: 0)
         VoiceIO.log("start: onDevice=\(rec.supportsOnDeviceRecognition) fmt=\(fmt.sampleRate)Hz/\(fmt.channelCount)ch")
         if fmt.sampleRate == 0 || fmt.channelCount == 0 { fail("Il microfono non è disponibile."); return }
         input.removeTap(onBus: 0)
-        input.installTap(onBus: 0, bufferSize: 1024, format: fmt) { buf, _ in req.append(buf) }
+        peak = 0
+        input.installTap(onBus: 0, bufferSize: 1024, format: fmt) { [weak self] buf, _ in
+            req.append(buf)
+            if let d = buf.floatChannelData?[0] { var m: Float = 0; for i in 0..<Int(buf.frameLength) { m = max(m, abs(d[i])) }; if m > (self?.peak ?? 1) { self?.peak = m } }
+        }
         engine.prepare()
         do { try engine.start() } catch { VoiceIO.log("engine: \(error)"); fail("Il microfono non parte."); return }
         AudioServicesPlaySystemSound(1113)
@@ -459,12 +465,12 @@ final class VoiceIO: NSObject, AVSpeechSynthesizerDelegate {
         endTimer = Timer.scheduledTimer(withTimeInterval: s, repeats: false) { [weak self] _ in self?.finish() }
     }
     // one answer per question: the cancelled task calls back again after we stop
-    private var active = false, qGen = 0
+    private var active = false, qGen = 0, peak: Float = 0
     private func finish() {
         guard active else { return }
         active = false
         let t = lastText
-        VoiceIO.log("heard: \"\(t)\"")
+        VoiceIO.log("heard: \"\(t)\" mic peak=\(peak)")
         stopListening(send: true)
         AudioServicesPlaySystemSound(1114)
         onHeard?(t, true)

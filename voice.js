@@ -84,7 +84,7 @@
     if (/\b(stop|basta|zitto|silenzio|ferma)\b/.test(t)) { stopWatch(); hush(); say("Ok.", { flush: true }); return; }
     if (/ping|pinga|pingo|pinghiamo/.test(t)) return pingLine(/pin\b|boa|sinistra|pin$/.test(t.replace(/ping[a-z]*/g, "")) ? "pin" : "boat");
     if (/incroc|passo davanti|passiamo davanti|passo dietro|chi passa/.test(t)) return crossing(/sopra|sopravento/.test(t) ? "up" : /sotto|sottovento/.test(t) ? "down" : "all", true);
-    if (/layline|lay line|virata|virare|viro|strambo|strambare/.test(t)) return laylines();
+    if (/lay ?-?line|eye ?-?liner|liner|lain|leila|le linee|linee|virata|virare|viro|strambo|strambare/.test(t)) return laylines();
     if (/sincr|sync|allinea|tondo|arrotonda/.test(t)) return cdSyncV();
     var cm = t.match(/(countdown|conto alla rovescia|timer|cronometro|parti|partire|via)\D{0,12}(\d+|un|uno|due|tre|quattro|cinque|sei|dieci)\s*minut/);
     if (cm) return cdStartV(word(cm[2]));

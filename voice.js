@@ -22,7 +22,7 @@
   function save(k, v) { try { localStorage.setItem("mrv." + k, JSON.stringify(v)); } catch (e) {} }
   var M = function () { return window.MRT; };
 
-  var cfg = { stem: load("stem", true), shifts: load("shifts", true), shiftDeg: load("shiftDeg", 5), countdown: load("countdown", true), boatLen: load("boatLen", 9.6) };
+  var cfg = { stem: load("stem", true), shifts: load("shifts", true), shiftDeg: load("shiftDeg", 5), countdown: load("countdown", true), burn: load("burn", true), boatLen: load("boatLen", 9.6) };
   var st = { listening: false, watch: null, lastShift: 0, lastCd: null, onState: null, heard: "" };
 
   // ---------- speaking ----------
@@ -30,6 +30,7 @@
     opts = opts || {};
     if (!text) return;
     text = text.charAt(0).toUpperCase() + text.slice(1);
+    console.log("[voice] say", text);
     st.lastSaid = text;
     if (st.onSay) st.onSay(text);
     var m = M();
@@ -67,6 +68,7 @@
     r.start();
   }
   function heard(o) {
+    console.log("[voice] heard", JSON.stringify(o));
     st.heard = o.text || "";
     if (o.final) { st.listening = false; state(); if (st.heard) answer(st.heard); else say("Non ho sentito."); }
     else state();
@@ -74,7 +76,7 @@
   function state() { if (st.onState) st.onState({ listening: st.listening, heard: st.heard, watching: !!st.watch }); }
   window.MRN = window.MRN || {};
   window.MRN.heard = heard;
-  window.MRN.voiceState = function (o) { if (o && o.error) { st.listening = false; state(); say(o.error); } if (o && o.stem) listen(); };
+  window.MRN.voiceState = function (o) { console.log("[voice] state", JSON.stringify(o)); if (o && o.error) { st.listening = false; state(); say(o.error); } if (o && o.stem) listen(); };
 
   // ---------- understanding ----------
   function answer(q) {
@@ -83,13 +85,16 @@
     if (/ping|pinga|pingo|pinghiamo/.test(t)) return pingLine(/pin\b|boa|sinistra|pin$/.test(t.replace(/ping[a-z]*/g, "")) ? "pin" : "boat");
     if (/incroc|passo davanti|passiamo davanti|passo dietro|chi passa/.test(t)) return crossing(/sopra|sopravento/.test(t) ? "up" : /sotto|sottovento/.test(t) ? "down" : "all", true);
     if (/layline|lay line|virata|virare|viro|strambo|strambare/.test(t)) return laylines();
-    if (/linea|partenza|manca|countdown|conto alla rovescia|bruciare/.test(t)) return lineInfo();
-    if (/vento|rotaz|salto|ruota|gira|raffica|pressione/.test(t)) { var mm = t.match(/(\d+|un|uno|due|tre|cinque|dieci)\s*minut/); return wind(mm ? word(mm[1]) : 2); }
+    if (/sincr|sync|allinea|tondo|arrotonda/.test(t)) return cdSyncV();
+    var cm = t.match(/(countdown|conto alla rovescia|timer|cronometro|parti|partire|via)\D{0,12}(\d+|un|uno|due|tre|quattro|cinque|sei|dieci)\s*minut/);
+    if (cm) return cdStartV(word(cm[2]));
+    if (/linea|partenza|manca|countdown|conto alla rovescia|bruciare|brucio|burn/.test(t)) return lineInfo();
+    if (/vento|rotaz|salto|ruota|gira|raffica|pressione/.test(t)) { var mm = t.match(/(\d+|un|uno|due|tre|quattro|cinque|sei|dieci)\s*minut/); return wind(mm ? word(mm[1]) : 2); }
     if (/boa|marca|mark|bearing/.test(t)) return mark();
     if (/velocit|target|polare|come andiamo|andiamo|vmg/.test(t)) return speed();
     say("Non ho capito. Puoi chiedere: incroci, vento, linea, pinga comitato, boa, layline, velocità.");
   }
-  function word(x) { return { un: 1, uno: 1, due: 2, tre: 3, cinque: 5, dieci: 10 }[x] || +x || 2; }
+  function word(x) { return { un: 1, uno: 1, due: 2, tre: 3, quattro: 4, cinque: 5, sei: 6, dieci: 10 }[x] || +x || 2; }
 
   // ---------- wind: shift and pressure over the last minutes ----------
   function meanTwd(rows) {
@@ -216,17 +221,31 @@
     if (si.fav && fin(si.biasDeg)) parts.push("favorito " + (si.fav === "pin" ? "il pin" : "il comitato") + " di " + Math.round(si.biasDeg) + " gradi");
     say(parts.join(", ") + ".");
   }
-  // the countdown said by itself: every minute, 30, 20, 10 to 1, and the gun
+  // started by voice: "countdown 5 minuti", "sincro" rounds to the nearest minute (on the signal)
+  function cdStartV(min) { M().setCD(min * 60); st.lastCd = null; say("Countdown " + (min === 1 ? "un minuto" : min + " minuti") + ", partito.", { flush: true }); }
+  function cdSyncV() { var r = M().cdSync(); if (!fin(r)) { say("Il countdown non è partito. Di' countdown cinque minuti."); return; } st.lastCd = null; say("Sincronizzato, " + (r ? secs(r) : "zero") + ".", { flush: true }); }
+  // time to burn, as on the Start page: countdown minus time to the line at this speed
+  function burnText(r) {
+    var si = M().startInfo(); if (!si || !fin(si.ttl) || !(r > 0)) return "";
+    var b = r - si.ttl, a = Math.round(Math.abs(b));
+    if (a < 2) return ", in tempo";
+    var t = a < 60 ? String(a) : secs(a);
+    return b > 0 ? ", brucia " + t : ", in ritardo " + t;
+  }
+  // the countdown said by itself: every minute, 45, 30, 20, 15 (with the time to burn), 10 to 1, and the gun
   function countdownWatch() {
     if (!cfg.countdown || !M()) return;
     var r = M().cdRem(); if (!fin(r) || r < -2 || r > 600) { st.lastCd = null; return; }
     var s = Math.ceil(r), key = null, txt = null;
-    if (s > 60 && s % 60 === 0) { key = s; txt = (s / 60) + " minuti"; }
-    else if (s === 60) { key = s; txt = "un minuto"; }
-    else if (s === 30 || s === 20) { key = s; txt = s + " secondi"; }
+    if (s >= 60 && s % 60 === 0) { key = s; txt = s === 60 ? "un minuto" : (s / 60) + " minuti"; }
+    else if (s === 45 || s === 30 || s === 20 || s === 15) { key = s; txt = s + " secondi"; }
     else if (s <= 10 && s >= 1) { key = s; txt = String(s); }
     else if (s <= 0 && r > -1.5) { key = 0; txt = "via!"; }
-    if (txt && st.lastCd !== key) { st.lastCd = key; say(txt, { flush: s <= 10 }); }
+    if (txt && st.lastCd !== key) {
+      st.lastCd = key;
+      if (s > 10 && cfg.burn) txt += burnText(r);
+      say(txt, { flush: s <= 10 });
+    }
   }
 
   // ---------- mark, laylines, speed ----------

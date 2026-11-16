@@ -46,6 +46,7 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
     private let motion = CMMotionManager()
 
     override public func load() {
+        setvbuf(stdout, nil, _IOLBF, 0)
         nmea.onLines = { [weak self] lines in
             guard let self = self else { return }
             self.raceLog.lines(lines)

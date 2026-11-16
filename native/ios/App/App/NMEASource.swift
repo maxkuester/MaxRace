@@ -388,13 +388,17 @@ final class VoiceIO: NSObject, AVSpeechSynthesizerDelegate {
 
     override init() { super.init(); synth.delegate = self }
 
+    static func log(_ t: String) { fputs("[voice] " + t + "\n", stderr) }
     private func session() {
         let s = AVAudioSession.sharedInstance()
-        try? s.setCategory(.playAndRecord, mode: .default, options: [.allowBluetooth, .allowBluetoothA2DP, .duckOthers, .defaultToSpeaker])
-        try? s.setActive(true)
+        do { try s.setCategory(.playAndRecord, mode: .default, options: [.allowBluetooth, .allowBluetoothA2DP, .duckOthers, .defaultToSpeaker]) }
+        catch { VoiceIO.log("setCategory: \(error)") }
+        do { try s.setActive(true) } catch { VoiceIO.log("setActive: \(error)") }
+        VoiceIO.log("route in=\(s.currentRoute.inputs.map { $0.portType.rawValue }) out=\(s.currentRoute.outputs.map { $0.portType.rawValue })")
     }
 
     func say(_ text: String, flush: Bool) {
+        VoiceIO.log("say \(text)")
         session()
         if flush { synth.stopSpeaking(at: .immediate) }
         let u = AVSpeechUtterance(string: text)
@@ -405,6 +409,7 @@ final class VoiceIO: NSObject, AVSpeechSynthesizerDelegate {
     func hush() { synth.stopSpeaking(at: .immediate) }
 
     func listen() {
+        VoiceIO.log("listen, speech auth=\(SFSpeechRecognizer.authorizationStatus().rawValue)")
         hush()
         SFSpeechRecognizer.requestAuthorization { st in
             DispatchQueue.main.async {
@@ -415,7 +420,7 @@ final class VoiceIO: NSObject, AVSpeechSynthesizerDelegate {
             }
         }
     }
-    private func fail(_ t: String) { onState?(["listening": false, "error": t]) }
+    private func fail(_ t: String) { VoiceIO.log("fail: " + t); onState?(["listening": false, "error": t]) }
 
     private func start() {
         guard let rec = recognizer, rec.isAvailable else { fail("Il riconoscimento in italiano non è disponibile su questo telefono."); return }
@@ -426,18 +431,25 @@ final class VoiceIO: NSObject, AVSpeechSynthesizerDelegate {
         if rec.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }   // at sea there is no internet
         request = req; lastText = ""
         let input = engine.inputNode, fmt = input.outputFormat(forBus: 0)
+        VoiceIO.log("start: onDevice=\(rec.supportsOnDeviceRecognition) fmt=\(fmt.sampleRate)Hz/\(fmt.channelCount)ch")
+        if fmt.sampleRate == 0 || fmt.channelCount == 0 { fail("Il microfono non è disponibile."); return }
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: fmt) { buf, _ in req.append(buf) }
         engine.prepare()
-        do { try engine.start() } catch { fail("Il microfono non parte."); return }
+        do { try engine.start() } catch { VoiceIO.log("engine: \(error)"); fail("Il microfono non parte."); return }
         AudioServicesPlaySystemSound(1113)
+        active = true
         onState?(["listening": true])
+        qGen += 1; let g = qGen
         task = rec.recognitionTask(with: req) { [weak self] res, err in
-            guard let self = self else { return }
-            if let r = res {
-                self.lastText = r.bestTranscription.formattedString
-                if r.isFinal { self.finish() } else { self.onHeard?(self.lastText, false); self.armEnd(1.4) }
-            } else if err != nil { self.finish() }
+            let text = res?.bestTranscription.formattedString, final = res?.isFinal ?? false
+            DispatchQueue.main.async {
+                guard let self = self, g == self.qGen else { return }
+                if let t = text {
+                    self.lastText = t
+                    if final { self.finish() } else { self.onHeard?(t, false); self.armEnd(1.4) }
+                } else if let e = err { VoiceIO.log("recognition: \(e)"); self.finish() }
+            }
         }
         armEnd(6)      // nothing said: give up after 6 s
     }
@@ -446,15 +458,16 @@ final class VoiceIO: NSObject, AVSpeechSynthesizerDelegate {
         endTimer?.invalidate()
         endTimer = Timer.scheduledTimer(withTimeInterval: s, repeats: false) { [weak self] _ in self?.finish() }
     }
-    private var finishing = false
+    // one answer per question: the cancelled task calls back again after we stop
+    private var active = false, qGen = 0
     private func finish() {
-        if finishing { return }
-        finishing = true
+        guard active else { return }
+        active = false
         let t = lastText
+        VoiceIO.log("heard: \"\(t)\"")
         stopListening(send: true)
         AudioServicesPlaySystemSound(1114)
         onHeard?(t, true)
-        finishing = false
     }
     private func stopListening(send: Bool) {
         endTimer?.invalidate(); endTimer = nil

@@ -799,6 +799,7 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
         <label><input type="checkbox" id="vcShifts"> Say wind shifts over <input type="number" id="vcShiftDeg" min="2" max="20" style="width:52px"> °</label>
         <label><input type="checkbox" id="vcCount"> Say the start countdown</label>
         <label><input type="checkbox" id="vcBurn"> With the time to burn</label>
+        <label><input type="checkbox" id="vcGo"> Call the luff to the line ("bolina tra 10… Bolina, ora!")</label>
         <label>Boat length <input type="number" id="vcLen" step="0.1" style="width:60px"> m</label>
       </div>
       <div class="msg" id="vcMsg"></div>
@@ -1054,6 +1055,11 @@ function simStep(dt){
     var along=dd<0&&hn>0.05?(-dd)/hn:0, back=along/tb*3600;
     mk=dest(line.pin.lat,line.pin.lon,wrap360(Math.atan2(v[0],v[1])*R2D),len/2);
     if(!fin(r)||r<-25){sim.mode="race";sim.bot=mk;sim.top=dest(mk.lat,mk.lon,225,1.4);sim.leg="up";sim.side=1;sim.lastTack=t;}
+    else if(r>0&&sim.sp==="reach"){
+      // reaching along the line on starboard, luff up when luffing now reaches the line at the gun
+      twa=95;bsp=polarBsp(95,tws)*0.85;
+      var si0=startInfo();if(si0&&si0.luff&&si0.luff.ok&&r-si0.luff.time<=0){sim.sp="turn";sim.turnT=t;}
+    }
     else if(r>0&&sim.sp==="away"){
       twa=-(180-al);bsp=polarBsp(180-al,tws)*0.97;
       if(back+22>=r-4){sim.sp="turn";sim.turnT=t;}
@@ -2363,12 +2369,12 @@ function ping(which){
   line=line||{};line[which]=p;save("line",line);
   sMsg((which==="pin"?"Pin":"Boat end")+" pinged."+(line.pin&&line.boat?"":" Now ping the "+(which==="pin"?"boat end":"pin")+"."));
 }
-function demoLine(){
+function demoLine(mode){
   if(!fin(S.lat)||!fin(S.twd))return;
   // 0.32 nm (about 590 m) line, square to the mean wind, 0.15 nm upwind of the boat
   var c0=dest(S.lat,S.lon,225,0.15),c=dest(c0.lat,c0.lon,135,0.1);   // boat starts towards the boat end
   line={pin:dest(c.lat,c.lon,wrap360(225-90),0.16),boat:dest(c.lat,c.lon,wrap360(225+90),0.16)};
-  lineDemo=true;setCD(240);sim.mode="start";sim.sp="away";
+  lineDemo=true;setCD(240);sim.mode="start";sim.sp=mode||"away";
   sMsg("Simulated start: 590 m line, 4′ countdown. Watch the boat run away, turn and hit the line at the gun.");
 }
 function setCD(sec){cd.run=true;cd.end=Date.now()+sec*1000;}
@@ -2482,8 +2488,11 @@ function renderStart(now){
     $(id).classList.remove("p","s");$(id).classList.add(x.tack==="port"?"p":"s");
     $(id+"lbl").textContent=(k==="luff"?"LUFF UP ":"TACK UP ")+(x.tack==="port"?"PORT":"STBD");
     if(!x.ok){$(id).textContent="--";$(id+"sub").textContent=ocs?"over the line":"not reaching the line";return;}
-    $(id).textContent=fmtSigned(x.time);
-    $(id+"sub").innerHTML="loss <b>"+fmtSigned(x.loss)+"</b> · "+(x.t<0?"beyond pin":x.t>1?"beyond boat end":Math.round(x.t*si.len*1852)+" m from pin");
+    var where=x.t<0?"beyond pin":x.t>1?"beyond boat end":Math.round(x.t*si.len*1852)+" m from pin";
+    // with the timer running: time to burn if you go now (0 = luff/tack now and hit the line at the gun)
+    if(fin(r)&&r>0){var b=r-x.time;$(id).textContent=fmtSigned(b);
+      $(id+"sub").innerHTML=(b<0?"late":"burn")+" · line in <b>"+fmtSigned(x.time)+"</b> · "+where;}
+    else{$(id).textContent=fmtSigned(x.time);$(id+"sub").innerHTML="loss <b>"+fmtSigned(x.loss)+"</b> · "+where;}
   });
   [["toPin","s-pin"],["toBoat","s-boat"]].forEach(function(q){
     var x=si[q[0]],id=q[1];
@@ -2633,7 +2642,8 @@ $("gunMsg").onclick=function(){if(gunEvt){gunEvt.t0=Math.min(gunEvt.t0,Date.now(
 $("stZoom").onclick=function(){stAuto=!stAuto;save("stauto",stAuto);$("stZoom").setAttribute("aria-pressed",stAuto);$("stZoom").textContent=stAuto?"Auto zoom":"Whole line";drawStart();};
 $("stZoom").setAttribute("aria-pressed",stAuto);$("stZoom").textContent=stAuto?"Auto zoom":"Whole line";
 $("pPin").onclick=function(){ping("pin");};
-$("demoBtn").onclick=function(){if(source==="sim"){demoLine();$("cdStop").textContent="Stop";}};
+// each press alternates: run away and come back, or reach along the line and luff up
+var demoN=0;$("demoBtn").onclick=function(){if(source==="sim"){demoLine(demoN++%2?"reach":"away");$("cdStop").textContent="Stop";sMsg(demoN%2?"Simulated start: run away, turn, hit the line at the gun.":"Simulated start: reach along the line, luff up to close-hauled at the right moment.");}};
 $("pBoat").onclick=function(){ping("boat");};
 /* start line ends typed as GPS coordinates or taken from a course mark */
 function lnMsg(t,c){var m=$("lnMsg");m.textContent=t;m.className="msg "+(c||"");}
@@ -3859,12 +3869,13 @@ if(load("src","sim")==="sk"&&load("skurl","")){setSource("sk");connectSK(load("s
 (function(){
   var V=window.MRVoice;if(!V)return;
   var el=function(id){return document.getElementById(id);};
-  el("vcStem").checked=V.cfg.stem;el("vcShifts").checked=V.cfg.shifts;el("vcShiftDeg").value=V.cfg.shiftDeg;el("vcCount").checked=V.cfg.countdown;el("vcBurn").checked=V.cfg.burn;el("vcLen").value=V.cfg.boatLen;
+  el("vcStem").checked=V.cfg.stem;el("vcShifts").checked=V.cfg.shifts;el("vcShiftDeg").value=V.cfg.shiftDeg;el("vcCount").checked=V.cfg.countdown;el("vcBurn").checked=V.cfg.burn;el("vcGo").checked=V.cfg.goCall;el("vcLen").value=V.cfg.boatLen;
   el("vcStem").onchange=function(){V.set("stem",this.checked);};
   el("vcShifts").onchange=function(){V.set("shifts",this.checked);};
   el("vcShiftDeg").onchange=function(){var x=+this.value;if(x>=2&&x<=20)V.set("shiftDeg",x);};
   el("vcCount").onchange=function(){V.set("countdown",this.checked);};
   el("vcBurn").onchange=function(){V.set("burn",this.checked);};
+  el("vcGo").onchange=function(){V.set("goCall",this.checked);};
   el("vcLen").onchange=function(){var x=+this.value;if(x>2&&x<60)V.set("boatLen",x);};
   var t0=0;
   V.st.onState=function(o){el("vMic").setAttribute("aria-pressed",o.listening||o.watching?"true":"false");if(o.listening){el("vcMsg").textContent="Listening… "+(o.heard||"");}};

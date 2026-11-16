@@ -22,7 +22,7 @@
   function save(k, v) { try { localStorage.setItem("mrv." + k, JSON.stringify(v)); } catch (e) {} }
   var M = function () { return window.MRT; };
 
-  var cfg = { stem: load("stem", true), shifts: load("shifts", true), shiftDeg: load("shiftDeg", 5), countdown: load("countdown", true), burn: load("burn", true), boatLen: load("boatLen", 9.6) };
+  var cfg = { stem: load("stem", true), shifts: load("shifts", true), shiftDeg: load("shiftDeg", 5), countdown: load("countdown", true), burn: load("burn", true), goCall: load("goCall", true), boatLen: load("boatLen", 9.6) };
   var st = { listening: false, watch: null, lastShift: 0, lastCd: null, onState: null, heard: "" };
 
   // ---------- speaking ----------
@@ -85,6 +85,7 @@
     if (/ping|pinga|pingo|pinghiamo/.test(t)) return pingLine(/pin\b|boa|sinistra|pin$/.test(t.replace(/ping[a-z]*/g, "")) ? "pin" : "boat");
     if (/incroc|passo davanti|passiamo davanti|passo dietro|chi passa/.test(t)) return crossing(/sopra|sopravento/.test(t) ? "up" : /sotto|sottovento/.test(t) ? "down" : "all", true);
     if (/lay ?-?line|eye ?-?liner|liner|lain|leila|le linee|linee|virata|virare|viro|strambo|strambare/.test(t)) return laylines();
+    if (/orz|bolina|quando vado|quando parto|quando giro|spunt|vir[ao] o/.test(t)) return goInfo();
     if (/sincr|sync|allinea|tondo|arrotonda/.test(t)) return cdSyncV();
     var cm = t.match(/(countdown|conto alla rovescia|timer|cronometro|parti|partire|via)\D{0,12}(\d+|un|uno|due|tre|quattro|cinque|sei|dieci)\s*minut/);
     if (cm) return cdStartV(word(cm[2]));
@@ -226,11 +227,18 @@
   function cdSyncV() { var r = M().cdSync(); if (!fin(r)) { say("Il countdown non è partito. Di' countdown cinque minuti."); return; } st.lastCd = null; say("Sincronizzato, " + (r ? secs(r) : "zero") + ".", { flush: true }); }
   // time to burn, as on the Start page: countdown minus time to the line at this speed
   function burnText(r) {
-    var si = M().startInfo(); if (!si || !fin(si.ttl) || !(r > 0)) return "";
-    var b = r - si.ttl, a = Math.round(Math.abs(b));
-    if (a < 2) return ", in tempo";
+    var si = M().startInfo(); if (!si || !(r > 0)) return "";
+    // not closing on the line (reaching along it, or running away): the burn if we luff up, or tack, now
+    var how = "", ttl = si.ttl;
+    if (!fin(ttl) || (si.luff && si.luff.ok && si.luff.turn >= 10)) {
+      var x = si.luff && si.luff.ok ? si.luff : si.tackUp && si.tackUp.ok ? si.tackUp : null;
+      if (!x) return "";
+      ttl = x.time; how = x === si.luff ? " orzando" : " virando";
+    }
+    var b = r - ttl, a = Math.round(Math.abs(b));
+    if (a < 2) return how ? "," + how + " in tempo" : ", in tempo";
     var t = a < 60 ? String(a) : secs(a);
-    return b > 0 ? ", brucia " + t : ", in ritardo " + t;
+    return (b > 0 ? ", brucia " : ", in ritardo ") + t + how;
   }
   // the countdown said by itself: every minute, 45, 30, 20, 15 (with the time to burn), 10 to 1, and the gun
   function countdownWatch() {
@@ -246,6 +254,43 @@
       if (s > 10 && cfg.burn) txt += burnText(r);
       say(txt, { flush: s <= 10 });
     }
+  }
+
+  // ---------- going for the line: luff up to close-hauled (or tack) and sail at target ----------
+  // the Start page's luff-up / tack-up options: x.time = manoeuvre + close-hauled at target to the line
+  function goOpts() {
+    var si = M().startInfo(), r = M().cdRem(); if (!si) return null;
+    var o = [];
+    if (si.luff && si.luff.ok) o.push({ k: "luff", x: si.luff, b: r - si.luff.time });
+    if (si.tackUp && si.tackUp.ok) o.push({ k: "tack", x: si.tackUp, b: r - si.tackUp.time });
+    return { si: si, r: r, o: o };
+  }
+  function whereOnLine(x, si) { return x.t < 0 ? "oltre il pin" : x.t > 1 ? "oltre il comitato" : "a " + metres(x.t * si.len * 1852) + " dal pin"; }
+  function goInfo() {
+    var g = goOpts(); if (!g) { say("Linea non impostata: di' pinga comitato, poi pinga pin."); return; }
+    if (!g.o.length) { say(g.si.d > 0 ? "Sei oltre la linea." : "Né orzando né virando arrivi alla linea da qui."); return; }
+    say(g.o.map(function (q) {
+      var n = q.k === "luff" ? (q.x.turn < 10 ? "di bolina" : "orzando") : "virando";
+      var t = n + " sei sulla linea in " + secs(q.x.time) + ", " + whereOnLine(q.x, g.si);
+      if (fin(g.r) && g.r > 0) t += Math.abs(q.b) < 2 ? ", vai ora" : q.b > 0 ? ", brucia " + secs(q.b) : ", in ritardo " + secs(q.b);
+      return t.charAt(0).toUpperCase() + t.slice(1);
+    }).join(". ") + ".", { flush: true });
+  }
+  // said by itself before the gun: "bolina tra 10", "5", "Bolina, ora!" when luffing now hits the line at the gun.
+  // Only when we are not already close-hauled (reaching, or running away); the tack is called if luffing cannot make it.
+  function goWatch() {
+    if (!cfg.goCall || !M()) return;
+    var r = M().cdRem(); if (!fin(r) || r <= 0 || r > 240) { st.go = null; return; }
+    var g = goOpts(); if (!g || !g.o.length) return;
+    var q = g.o[0].k === "luff" && g.o[0].x.turn >= 10 ? g.o[0] : g.o[0].k === "tack" ? g.o[0] : null;
+    if (!q) { st.go = null; return; }               // already close-hauled: the countdown and burn say it all
+    var name = q.k === "luff" ? "bolina" : "vira", b = q.b, go = st.go || (st.go = {});
+    if (b > 12) { go[q.k] = null; return; }           // re-arm when there is time again (bore away)
+    var key = b <= 0.5 ? 0 : b <= 5.5 ? 5 : b <= 10.5 ? 10 : null;
+    if (key == null || go[q.k] === key || (go[q.k] != null && go[q.k] < key)) return;
+    if (key === 0 && b < -4) return;                  // long past: do not shout late
+    go[q.k] = key;
+    say(key === 0 ? (q.k === "luff" ? "Bolina, ora!" : "Vira, ora!") : name + " tra " + key, { flush: true });
   }
 
   // ---------- mark, laylines, speed ----------
@@ -275,13 +320,13 @@
   }
 
   setInterval(function () { try { shiftWatch(); } catch (e) {} }, 5000);
-  setInterval(function () { try { countdownWatch(); } catch (e) {} }, 250);
+  setInterval(function () { try { countdownWatch(); goWatch(); } catch (e) {} }, 250);
 
   // the earphone stem talks only when turned on (it makes MaxRace the "now playing" app)
   function stemOn(on) { var m = M(); if (m && m.native) m.nat({ cmd: "voiceOn", on: !!on }); }
 
   window.MRVoice = {
-    listen: listen, say: say, answer: answer, cfg: cfg, st: st, stemOn: stemOn,
+    listen: listen, say: say, answer: answer, goWatch: goWatch, goInfo: goInfo, cfg: cfg, st: st, stemOn: stemOn,
     set: function (k, v) { cfg[k] = v; save(k, v); if (k === "stem") stemOn(v); },
     init: function () { if (cfg.stem) stemOn(true); }
   };

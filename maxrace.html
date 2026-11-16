@@ -271,6 +271,14 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 }
 
 /* ---- gun message ---- */
+.helmbar{position:fixed;left:50%;bottom:max(10px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:40;width:min(560px,calc(100vw - 32px));
+  display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:12px;background:color-mix(in srgb,var(--face) 88%,transparent);backdrop-filter:blur(6px)}
+.helmbar[hidden]{display:none}
+.helmbar button{flex:none;min-width:58px;padding:8px 10px;border-radius:9px;border:1px solid var(--line);background:transparent;color:var(--ink);font:inherit;font-size:13px;font-weight:700}
+.helmbar button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#000}
+.helmbar input{flex:1;min-width:0;accent-color:var(--accent);height:34px}
+.helmbar .hv{flex:none;width:44px;text-align:right;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.helmbar.off input,.helmbar.off .hv,.helmbar.off #helmTack{opacity:.35}
 .gunmsg{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2vh;
   padding:env(safe-area-inset-top,0px) 4vw env(safe-area-inset-bottom,0px);text-align:center;cursor:pointer}
 .gunmsg.good{background:var(--stbd);color:#000}
@@ -896,6 +904,13 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
   </div>
 </dialog>
 
+<div class="helmbar off" id="helmBar" hidden title="Steer the simulated boat">
+  <button id="helmOn" aria-pressed="false">Helm</button>
+  <span class="hv" id="helmL">port</span>
+  <input type="range" id="helmRud" min="-100" max="100" value="0" step="1" aria-label="Rudder: left turns to port, right to starboard">
+  <span class="hv" id="helmR" style="text-align:left">stbd</span>
+  <button id="helmTack">Tack</button>
+</div>
 <script>
 (function(){
 "use strict";
@@ -1032,6 +1047,9 @@ var source="sim", ws=null;
 
 /* simulator */
 var sim={t:0,side:1,leg:"up",lastTack:-60,gust:0};
+var helm={on:false,rud:0,hdg:NaN,v:NaN,to:null};
+// the helm bar is defined at the end of the page: until then just remember whether to show it
+function helmShow(on){var b=document.getElementById("helmBar");if(b)b.hidden=!on;if(!on)helmSet(false);}
 function dest(lat,lon,brg,nm){return {lat:lat+nm*Math.cos(brg*D2R)/60,lon:lon+nm*Math.sin(brg*D2R)/(60*Math.cos(lat*D2R))};}
 function bearDist(lat1,lon1,lat2,lon2){
   var dx=(lon2-lon1)*60*Math.cos(lat1*D2R), dy=(lat2-lat1)*60;
@@ -1089,6 +1107,19 @@ function simStep(dt){
     var since=t-sim.lastTack;loss=since<25?0.72+0.28*(since/25):1;
     bsp=polarBsp(twa,tws)*(0.955+0.04*Math.sin(t/31))*loss+(Math.random()-0.5)*0.12;
   } else {up=Math.abs(twa)<90;}
+  // hand steering: the rudder slider turns the boat, the speed follows the polar with some inertia
+  if(helm.on){
+    if(!fin(helm.hdg)){helm.hdg=fin(raw.hdg)?raw.hdg:wrap360(twd-twa);helm.v=fin(bsp)?bsp:5;}
+    var rate=helm.to!=null?Math.sign(wrap180(helm.to-helm.hdg))*Math.min(8,Math.abs(wrap180(helm.to-helm.hdg))/dt):helm.rud*10;
+    helm.hdg=wrap360(helm.hdg+rate*dt);
+    if(helm.to!=null&&Math.abs(wrap180(helm.to-helm.hdg))<0.5)helm.to=null;
+    twa=wrap180(twd-helm.hdg);var a=Math.abs(twa),beat=T.up.twa;
+    // no-go zone: the boat stalls; close to it, speed drops towards zero
+    var tgt=polarBsp(Math.max(a,beat),tws)*(a>=beat?1:Math.max(0,(a-28)/(beat-28)))*0.97;
+    tgt*=1-Math.min(0.35,Math.abs(rate)/8*0.25);                 // a turning rudder brakes
+    var tau=helm.v>tgt?6:12;helm.v+=(tgt-helm.v)*Math.min(1,dt/tau);
+    bsp=Math.max(0,helm.v+(Math.random()-0.5)*0.08);loss=Math.min(1,bsp/Math.max(1,polarBsp(Math.max(a,beat),tws)));up=a<90;
+  } else {helm.hdg=NaN;}
   raw.tws=tws;raw.twd=twd;raw.twa=twa;raw.bsp=bsp;
   raw.hdg=wrap360(twd-twa);
   raw.cog=wrap360(raw.hdg+3*Math.sin(t/200));raw.sog=Math.max(0,bsp+0.25*Math.sin(t/200));
@@ -3361,10 +3392,10 @@ function setSource(s){
   source=s;$("srcSim").setAttribute("aria-pressed",s==="sim");$("srcSK").setAttribute("aria-pressed",s==="sk");$("srcNM").setAttribute("aria-pressed",s==="nmea");$("srcGPS").setAttribute("aria-pressed",s==="gps");
   $("gpsBox").hidden=s!=="gps";
   ais={};if(s!=="nmea")disconnectNM();if(s!=="gps")stopGps();
-  if(s==="gps"){disconnectSK();raw={};S={};hist=[];startGps();$("demoBtn").hidden=true;return;}
+  if(s==="gps"){disconnectSK();raw={};S={};hist=[];startGps();$("demoBtn").hidden=true;helmShow(false);return;}
   if(s==="sim"){disconnectSK();raw={};S={};seedSim();setPill("sim","Simulator");skMsg("");}
   else {raw={};S={};hist=[];setPill("err","Not connected");skMsg("Enter the address and choose Connect.");}
-  $("demoBtn").hidden=s!=="sim";
+  $("demoBtn").hidden=s!=="sim";helmShow(s==="sim");
 }
 $("srcSim").onclick=function(){setSource("sim");save("src","sim");};
 $("srcSK").onclick=function(){setSource("sk");};
@@ -3869,6 +3900,24 @@ if(HOSTED){
   }
 }
 if(load("src","sim")==="sk"&&load("skurl","")){setSource("sk");connectSK(load("skurl",""));}
+// simulator helm: press Helm to take the boat off the autopilot; the slider is the tiller and springs back to the centre
+function helmSet(on){helm.on=on;helm.to=null;helm.rud=0;var b=document.getElementById("helmBar"),r=document.getElementById("helmRud");
+  if(!b)return;b.classList.toggle("off",!on);document.getElementById("helmOn").setAttribute("aria-pressed",on?"true":"false");r.value=0;}
+(function(){
+  var r=document.getElementById("helmRud");
+  document.getElementById("helmOn").onclick=function(){helmSet(!helm.on);};
+  r.oninput=function(){if(!helm.on)helmSet(true);helm.to=null;helm.rud=Number(r.value)/100;
+    document.getElementById("helmL").textContent=helm.rud<0?Math.round(-helm.rud*10)+"°/s":"port";
+    document.getElementById("helmR").textContent=helm.rud>0?Math.round(helm.rud*10)+"°/s":"stbd";};
+  var back=function(){r.value=0;helm.rud=0;document.getElementById("helmL").textContent="port";document.getElementById("helmR").textContent="stbd";};
+  ["pointerup","pointercancel","touchend","change"].forEach(function(e){r.addEventListener(e,back);});
+  // tack or gybe: through the wind to the same angle on the other side, at 8°/s
+  document.getElementById("helmTack").onclick=function(){if(!helm.on)helmSet(true);if(!fin(helm.hdg)||!fin(S.twd))return;
+    // upwind: to close-hauled on the new tack (out of the no-go zone if luffed); downwind: the mirror angle
+    var twa=wrap180(S.twd-helm.hdg),a=Math.abs(twa),beat=fin(S.tws)?targets(S.tws).up.twa:42;
+    helm.to=wrap360(S.twd+Math.sign(twa||1)*(a<90?Math.max(a,beat):a));};
+  document.getElementById("helmBar").hidden=source!=="sim";
+})();
 })();
 </script>
 <script src="target-tack.js"></script>

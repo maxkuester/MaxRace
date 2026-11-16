@@ -1047,7 +1047,7 @@ var source="sim", ws=null;
 
 /* simulator */
 var sim={t:0,side:1,leg:"up",lastTack:-60,gust:0};
-var helm={on:false,rud:0,hdg:NaN,v:NaN,to:null};
+var helm={on:false,rud:0,hdg:NaN,v:NaN,to:null,hold:NaN};
 // the helm bar is defined at the end of the page: until then just remember whether to show it
 function helmShow(on){var b=document.getElementById("helmBar");if(b)b.hidden=!on;if(!on)helmSet(false);}
 function dest(lat,lon,brg,nm){return {lat:lat+nm*Math.cos(brg*D2R)/60,lon:lon+nm*Math.sin(brg*D2R)/(60*Math.cos(lat*D2R))};}
@@ -1110,14 +1110,16 @@ function simStep(dt){
   // hand steering: the rudder slider turns the boat, the speed follows the polar with some inertia
   if(helm.on){
     if(!fin(helm.hdg)){helm.hdg=fin(raw.hdg)?raw.hdg:wrap360(twd-twa);helm.v=fin(bsp)?bsp:5;}
+    // upwind with the tiller let go, the helmsman keeps the wind angle (follows the shifts), like on the boat
+    if(helm.to==null&&!helm.rud&&fin(helm.hold))helm.to=wrap360(twd-helm.hold);
     var rate=helm.to!=null?Math.sign(wrap180(helm.to-helm.hdg))*Math.min(8,Math.abs(wrap180(helm.to-helm.hdg))/dt):helm.rud*10;
     helm.hdg=wrap360(helm.hdg+rate*dt);
-    if(helm.to!=null&&Math.abs(wrap180(helm.to-helm.hdg))<0.5)helm.to=null;
+    if(helm.to!=null&&Math.abs(wrap180(helm.to-helm.hdg))<0.5){helm.to=null;var ta=wrap180(twd-helm.hdg);helm.hold=Math.abs(ta)<65?ta:NaN;}
     twa=wrap180(twd-helm.hdg);var a=Math.abs(twa),beat=T.up.twa;
     // no-go zone: the boat stalls; close to it, speed drops towards zero
     var tgt=polarBsp(Math.max(a,beat),tws)*(a>=beat?1:Math.max(0,(a-28)/(beat-28)))*0.97;
     tgt*=1-Math.min(0.35,Math.abs(rate)/8*0.25);                 // a turning rudder brakes
-    var tau=helm.v>tgt?6:12;helm.v+=(tgt-helm.v)*Math.min(1,dt/tau);
+    var tau=helm.v>tgt?8:12;helm.v+=(tgt-helm.v)*Math.min(1,dt/tau);
     bsp=Math.max(0,helm.v+(Math.random()-0.5)*0.08);loss=Math.min(1,bsp/Math.max(1,polarBsp(Math.max(a,beat),tws)));up=a<90;
   } else {helm.hdg=NaN;}
   raw.tws=tws;raw.twd=twd;raw.twa=twa;raw.bsp=bsp;
@@ -2416,6 +2418,11 @@ function fmtCD(sec){
   return (neg?"+":"")+m+":"+("0"+x).slice(-2);
 }
 function fmtSigned(sec){if(!fin(sec))return "--";var neg=sec<0,a=Math.abs(sec),m=Math.floor(a/60),x=Math.round(a%60);if(x===60){m++;x=0;}return (neg?"−":"")+m+":"+("0"+x).slice(-2);}
+function twdMean(sec){
+  var x=0,y=0,n=0,now=Date.now();
+  for(var i=hist.length-1;i>=0&&now-hist[i].t<=sec*1000;i--){var r=hist[i];if(fin(r.twd)){x+=Math.sin(r.twd*D2R);y+=Math.cos(r.twd*D2R);n++;}}
+  return n>=3?wrap360(Math.atan2(x,y)*R2D):NaN;
+}
 function startInfo(){
   var bp=bowPos();if(!line||!line.pin||!line.boat||!bp)return null;
   var k=Math.cos(bp.lat*D2R);
@@ -2447,11 +2454,17 @@ function startInfo(){
       var arcT=amt/manv.rate,dE=dd+(x*n[0]+y*n[1]);
       if(!(dE<0))return {tack:tack,ok:false,arc:arc};
       var sd=(-dE)/hn,pt=[x+h[0]*sd,y+h[1]*sd],tt=((pt[0]-P[0])*v[0]+(pt[1]-P[1])*v[1])/(len*len);
-      var total=arcT+sd/T.up.bsp*3600+(isTack?manv.tack:manv.luff);
+      // luffing keeps the speed: it decays from the speed now to the target (time constant 8 s) instead of
+      // dropping to target at once, so a boat reaching fast gets there sooner. After a tack: target + set loss.
+      var legT=sd/T.up.bsp*3600;
+      if(!isTack){var vt=T.up.bsp/3600,dv=Math.min(0.9*vt,v0/3600-vt),tau=8;for(var it=0;it<6;it++)legT=Math.max(0,(sd-dv*tau*(1-Math.exp(-legT/tau)))/vt);}
+      var total=arcT+legT+(isTack?manv.tack:manv.luff);
       return {tack:tack,ok:true,d:sd,time:total,loss:total-ideal,pt:pt,t:tt,arc:arc,turn:amt};
     };
-    o.luff=go(wrap360(S.twd-side*al),side>0?"stbd":"port",false);
-    o.tackUp=go(wrap360(S.twd+side*al),side>0?"port":"stbd",true);
+    // close-hauled on the mean wind of the last 20 s: one oscillation must not move the call by seconds
+    var tw=twdMean(20);if(!fin(tw))tw=S.twd;
+    o.luff=go(wrap360(tw-side*al),side>0?"stbd":"port",false);
+    o.tackUp=go(wrap360(tw+side*al),side>0?"port":"stbd",true);
     // fastest you could sail straight to a point: polar speed, or the target VMG made good if it is inside the no-go zone
     var reach=function(E){
       var dist=Math.hypot(E[0],E[1]),brg=wrap360(Math.atan2(E[0],E[1])*R2D),a=Math.abs(wrap180(S.twd-brg));
@@ -3901,15 +3914,15 @@ if(HOSTED){
 }
 if(load("src","sim")==="sk"&&load("skurl","")){setSource("sk");connectSK(load("skurl",""));}
 // simulator helm: press Helm to take the boat off the autopilot; the slider is the tiller and springs back to the centre
-function helmSet(on){helm.on=on;helm.to=null;helm.rud=0;var b=document.getElementById("helmBar"),r=document.getElementById("helmRud");
+function helmSet(on){helm.on=on;helm.to=null;helm.rud=0;helm.hold=NaN;var b=document.getElementById("helmBar"),r=document.getElementById("helmRud");
   if(!b)return;b.classList.toggle("off",!on);document.getElementById("helmOn").setAttribute("aria-pressed",on?"true":"false");r.value=0;}
 (function(){
   var r=document.getElementById("helmRud");
   document.getElementById("helmOn").onclick=function(){helmSet(!helm.on);};
-  r.oninput=function(){if(!helm.on)helmSet(true);helm.to=null;helm.rud=Number(r.value)/100;
+  r.oninput=function(){if(!helm.on)helmSet(true);helm.to=null;helm.hold=NaN;helm.rud=Number(r.value)/100;
     document.getElementById("helmL").textContent=helm.rud<0?Math.round(-helm.rud*10)+"°/s":"port";
     document.getElementById("helmR").textContent=helm.rud>0?Math.round(helm.rud*10)+"°/s":"stbd";};
-  var back=function(){r.value=0;helm.rud=0;document.getElementById("helmL").textContent="port";document.getElementById("helmR").textContent="stbd";};
+  var back=function(){r.value=0;helm.rud=0;if(fin(helm.hdg)&&fin(S.twd)){var ta=wrap180(S.twd-helm.hdg);helm.hold=Math.abs(ta)<65?ta:NaN;}document.getElementById("helmL").textContent="port";document.getElementById("helmR").textContent="stbd";};
   ["pointerup","pointercancel","touchend","change"].forEach(function(e){r.addEventListener(e,back);});
   // tack or gybe: through the wind to the same angle on the other side, at 8°/s
   document.getElementById("helmTack").onclick=function(){if(!helm.on)helmSet(true);if(!fin(helm.hdg)||!fin(S.twd))return;

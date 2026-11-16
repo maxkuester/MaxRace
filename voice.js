@@ -81,10 +81,12 @@
   // ---------- understanding ----------
   function answer(q) {
     var t = q.toLowerCase();
-    if (/\b(stop|basta|zitto|silenzio|ferma)\b/.test(t)) { stopWatch(); hush(); say("Ok.", { flush: true }); return; }
+    if (/\b(stop|basta|zitto|silenzio|ferma)\b/.test(t)) { stopWatch(); hush(); if (st.cal) { clearInterval(st.cal.tick); st.cal = null; } say("Ok.", { flush: true }); return; }
     if (/ping|pinga|pingo|pinghiamo/.test(t)) return pingLine(/pin\b|boa|sinistra|pin$/.test(t.replace(/ping[a-z]*/g, "")) ? "pin" : "boat");
     if (/incroc|passo davanti|passiamo davanti|passo dietro|chi passa/.test(t)) return crossing(/sopra|sopravento/.test(t) ? "up" : /sotto|sottovento/.test(t) ? "down" : "all", true);
     if (/lay ?-?line|eye ?-?liner|liner|lain|leila|le linee|linee|virata|virare|viro|strambo|strambare/.test(t)) return laylines();
+    if (/calibra|taratura|tarare/.test(t)) return /appl|salva|usa/.test(t) ? calApplyV() : calibrate();
+    if (st.cal && /(appl|salva|usa)\w*/.test(t)) return calApplyV();
     if (/orz|bolina|quando vado|quando parto|quando giro|spunt|vir[ao] o/.test(t)) return goInfo();
     if (/sincr|sync|allinea|tondo|arrotonda/.test(t)) return cdSyncV();
     var cm = t.match(/(countdown|conto alla rovescia|timer|cronometro|parti|partire|via)\D{0,12}(\d+|un|uno|due|tre|quattro|cinque|sei|dieci)\s*minut/);
@@ -120,7 +122,7 @@
   }
   // said by itself: a shift of the 30 s wind against the 5 minute mean
   function shiftWatch() {
-    if (!cfg.shifts || !M()) return;
+    if (!cfg.shifts || !M() || st.cal) return;
     var h = M().hist(), now = Date.now();
     var a = meanTwd(h.filter(function (r) { return now - r.t <= 30000; })), b = meanTwd(h.filter(function (r) { return now - r.t <= 300000; }));
     if (!fin(a) || !fin(b) || h.length < 180) return;
@@ -293,6 +295,79 @@
     say(key === 0 ? (q.k === "luff" ? "Bolina, ora!" : "Vira, ora!") : name + " tra " + key, { flush: true });
   }
 
+  // ---------- guided calibration, before the warning signal ----------
+  // Beat 30 s, tack, beat 30 s on the other tack (true wind on each tack), bear away to a reach, luff up.
+  // The manoeuvres are measured by the page (calib.js); this says what to do and reads the results.
+  function twdNow(sec) { var m = M(); return m.twdMean ? m.twdMean(sec) : NaN; }
+  function upwind(S) { return fin(S.twa) && Math.abs(S.twa) >= 25 && Math.abs(S.twa) <= 60; }
+  function calibrate() {
+    var m = M(); if (!m || !m.calOn) return;
+    if (st.cal) { calEnd("Calibrazione interrotta."); return; }
+    if (!st.calHooked) { m.calOn(function (x) { if (st.cal && st.cal.onMan) st.cal.onMan(x); }); st.calHooked = true; }
+    var c = st.cal = { step: 0, since: 0, t0: Date.now(), res: {}, onMan: null };
+    var steps = [
+      { say: "Calibrazione. Bolina per trenta secondi.", wait: function (S) { return upwind(S); }, hold: 30,
+        done: function (S) { c.res.twd1 = twdNow(25); c.res.side1 = S.twa > 0 ? "dritta" : "sinistra"; } },
+      { say: "Vira, ora!", man: "tack" },
+      { say: "Bolina, trenta secondi.", wait: function (S) { return upwind(S); }, hold: 30,
+        done: function (S) { c.res.twd2 = twdNow(25); } },
+      { say: "Poggia al traverso e tieni quindici secondi.", wait: function (S) { return fin(S.twa) && Math.abs(S.twa) >= 75 && Math.abs(S.twa) <= 115; }, hold: 15 },
+      { say: "Orza di bolina, ora!", man: "luff" }
+    ];
+    c.steps = steps;
+    function next() {
+      if (c.step >= steps.length) { calSummaryV(); return; }
+      var p = steps[c.step]; c.since = 0; c.started = Date.now(); say(p.say, { flush: true });
+      c.onMan = p.man ? function (x) {
+        if (x.type !== p.man || x.t * 1000 < c.started - 5000) return;
+        c.res[p.man] = x; x.guided = true;
+        say(p.man === "tack" ? "Virata: " + (fin(x.loss) ? "persi " + n1(x.loss) + " secondi, " : "") + n1(x.rate) + " gradi al secondo" + (fin(x.rec) && x.rec < 90 ? ", a velocità in " + x.rec + " secondi" : "") + "."
+          : "Orzata: " + n1(x.rate) + " gradi al secondo" + (fin(x.loss) ? (x.loss >= 0 ? ", persi " : ", guadagnati ") + n1(Math.abs(x.loss)) + " secondi sul modello" : "") + ".");
+        c.step++; setTimeout(next, 2500);
+      } : null;
+    }
+    c.tick = setInterval(function () {
+      if (!st.cal) return;
+      var p = steps[c.step], S = M().own(); if (!p) return;
+      if (Date.now() - c.started > 240000) { say("Salto questo passo."); c.step++; next(); return; }
+      if (p.man) {
+        // the measure comes about 30 s after the turn: say so once, so nobody waits in silence
+        if (!c.told && Date.now() - c.started > 20000) { c.told = true; say("Misuro, tieni la bolina."); }
+        return;
+      }
+      c.since = p.wait(S) ? c.since + 1 : 0;
+      if (c.since >= p.hold) { if (p.done) p.done(S); c.step++; c.told = false; next(); }
+    }, 1000);
+    next(); state();
+  }
+  function calSummaryV() {
+    var c = st.cal, r = c.res, parts = [];
+    if (fin(r.twd1) && fin(r.twd2)) {
+      var d = wrap180(r.twd2 - r.twd1); if (r.side1 === "dritta") d = -d;     // starboard minus port
+      parts.push(Math.abs(d) < 3 ? "vento vero coerente tra le mure" : "il vento vero cambia di " + Math.round(Math.abs(d)) + " gradi tra le mure: se si ripete, controlla la taratura di bussola e AWA");
+    }
+    var s = M().calib().sum;
+    if (fin(s.luffRate || s.rate)) parts.push("accostata " + n1(fin(s.luffRate) ? s.luffRate : s.rate) + " gradi al secondo");
+    if (fin(s.tackLoss)) parts.push("virata " + n1(s.tackLoss) + " secondi");
+    if (fin(s.luffLoss)) parts.push("orzata " + n1(s.luffLoss) + " secondi");
+    clearInterval(c.tick); c.done = true;
+    var txt = parts.join(", ") || "non ho misurato abbastanza";
+    say("Calibrazione finita. " + txt.charAt(0).toUpperCase() + txt.slice(1) + ". Di' applica calibrazione per usarla in partenza.");
+    st.calAsk = Date.now(); st.cal = null; state();
+  }
+  function calApplyV() {
+    var d = M().calApply(); if (st.cal) { clearInterval(st.cal.tick); st.cal = null; }
+    say(d.length ? "Applicata: " + d.join(", ").replace(/°\/s/g, " gradi al secondo").replace(/ s\b/g, " secondi").replace(/turn rate/, "accostata").replace(/tack loss/, "virata").replace(/luff loss/, "orzata").replace(/(\d)\.(\d)/g, "$1,$2") + "." : "Non ho ancora misure da applicare.");
+  }
+  function calEnd(t) { if (st.cal) clearInterval(st.cal.tick); st.cal = null; say(t, { flush: true }); state(); }
+  // in the race: the true wind seen on each tack should agree; say it once in a while if it does not
+  function twdTackWatch() {
+    var m = M(); if (!m || !m.calib) return; var c = m.calib(); if (c.sim) return;
+    var s = c.sum; if (!(s.nPairs >= 2) || !(Math.abs(s.twdTack) >= 4) || Date.now() - (st.twdWarn || 0) < 1200000) return;
+    st.twdWarn = Date.now();
+    say("Attenzione: il vento vero è " + Math.round(Math.abs(s.twdTack)) + " gradi più a " + (s.twdTack > 0 ? "destra" : "sinistra") + " sulle mure a dritta che a sinistra. Probabile taratura degli strumenti.");
+  }
+
   // ---------- mark, laylines, speed ----------
   function mark() {
     var m = M(), o = m.dtwBtw(), S = m.own();
@@ -319,14 +394,14 @@
     say(txt + ".");
   }
 
-  setInterval(function () { try { shiftWatch(); } catch (e) {} }, 5000);
+  setInterval(function () { try { shiftWatch(); twdTackWatch(); } catch (e) {} }, 5000);
   setInterval(function () { try { countdownWatch(); goWatch(); } catch (e) {} }, 250);
 
   // the earphone stem talks only when turned on (it makes MaxRace the "now playing" app)
   function stemOn(on) { var m = M(); if (m && m.native) m.nat({ cmd: "voiceOn", on: !!on }); }
 
   window.MRVoice = {
-    listen: listen, say: say, answer: answer, goWatch: goWatch, goInfo: goInfo, cfg: cfg, st: st, stemOn: stemOn,
+    listen: listen, say: say, answer: answer, goWatch: goWatch, goInfo: goInfo, calibrate: calibrate, cfg: cfg, st: st, stemOn: stemOn,
     set: function (k, v) { cfg[k] = v; save(k, v); if (k === "stem") stemOn(v); },
     init: function () { if (cfg.stem) stemOn(true); }
   };

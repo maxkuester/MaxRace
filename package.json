@@ -33,6 +33,7 @@
       "maxrace.html",
       "targets.js",
       "voice.js",
+      "calib.js",
       "scripts/target-tack.js",
       "vendor/**",
       "fonts/**",

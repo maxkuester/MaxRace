@@ -874,6 +874,18 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
     </div>
 
     <div>
+      <h3>Calibration</h3>
+      <p>While you sail with the instruments MaxRace measures every tack, luff and gybe (turn rate, seconds lost, time back to target speed), your close-hauled speed against the polar, and the true wind on each tack. Apply puts the measured values in the manoeuvres above. The guided calibration takes 5 minutes before the warning signal and talks you through it.</p>
+      <div class="msg" id="calOut">Nothing measured yet.</div>
+      <div class="row">
+        <button class="btn" id="calApply">Apply to manoeuvres</button>
+        <button class="btn" id="calGuide">Guided calibration</button>
+        <label class="btn" for="calCsv">Learn from a race CSV</label><input type="file" id="calCsv" accept=".csv,text/csv,text/plain" hidden>
+        <button class="btn" id="calClear">Clear</button>
+      </div>
+    </div>
+
+    <div>
       <h3>GPS antenna to bow</h3>
       <p>Distance from the GPS antenna forward to the bow, in metres. Start line distances and pings are measured from the bow.</p>
       <div class="row"><input type="text" id="bowIn" inputmode="decimal" placeholder="0" style="max-width:140px"></div>
@@ -934,7 +946,7 @@ function wrap180(a){a=wrap360(a);return a>180?a-360:a;}
 function $(id){return document.getElementById(id);}
 var SP="maxrace:",OLD=["racedash:","c7dash:"];
 var sync={ver:0,timer:null,applying:false,del:{},t:{}};
-var PK={polar:1,manv:1,bow:1,nmea:1,skurl:1,src:1,boat:1};
+var PK={polar:1,manv:1,bow:1,nmea:1,skurl:1,src:1,boat:1,calib:1};
 function save(k,v){try{localStorage.setItem(SP+k,JSON.stringify(v));}catch(e){}if(PK[k])profHook(k,v);if(k==="course"||k==="line")syncLocal(k);}
 function load(k,d){try{var v=localStorage.getItem(SP+k);for(var i=0;v==null&&i<OLD.length;i++){v=localStorage.getItem(OLD[i]+k);if(v!=null)localStorage.setItem(SP+k,v);}return v==null?d:JSON.parse(v);}catch(e){return d;}}
 function forget(k){try{localStorage.removeItem(SP+k);OLD.forEach(function(p){localStorage.removeItem(p+k);});}catch(e){}if(PK[k])profHook(k,undefined);}
@@ -1048,8 +1060,9 @@ var source="sim", ws=null;
 /* simulator */
 var sim={t:0,side:1,leg:"up",lastTack:-60,gust:0};
 var helm={on:false,rud:0,hdg:NaN,v:NaN,to:null,hold:NaN};
+var calib=load("calib",null)||{mans:[],beats:[]},calSim={mans:[],beats:[]},calBuf=[],calSeen={},calListeners=[];
 // the helm bar is defined at the end of the page: until then just remember whether to show it
-function helmShow(on){var b=document.getElementById("helmBar");if(b)b.hidden=!on;if(!on)helmSet(false);}
+function helmShow(on){var b=document.getElementById("helmBar");if(b)b.hidden=!on;if(!on)helmSet(false);renderCalib();}
 function dest(lat,lon,brg,nm){return {lat:lat+nm*Math.cos(brg*D2R)/60,lon:lon+nm*Math.sin(brg*D2R)/(60*Math.cos(lat*D2R))};}
 function bearDist(lat1,lon1,lat2,lon2){
   var dx=(lon2-lon1)*60*Math.cos(lat1*D2R), dy=(lat2-lat1)*60;
@@ -1284,7 +1297,7 @@ function seedSim(){
 }
 function pushHist(now){
   if(now-lastHist<1000||!fin(S.twd))return;lastHist=now;
-  hist.push(histRow(now));
+  hist.push(histRow(now));calPush(now);
   while(hist.length&&now-hist[0].t>1800000)hist.shift();
 }
 function currentRef(now){
@@ -2005,6 +2018,8 @@ window.MRT={own:function(){return S;},targets:targetsIn,nat:nat,native:NATIVE,
   startInfo:function(){return startInfo();},cdRem:function(){return cdRem(Date.now());},ping:function(w){ping(w);},
   layInfo:function(){return layInfo();},dtwBtw:function(){return dtwBtw();},perfNow:function(){return perfNow();},vmc:function(){return vmcNow();},
   setCD:function(sec){setCD(sec);$("cdStop").textContent="Stop";},
+  calib:function(){return {sum:calSummary(),store:calStore(),sim:source==="sim"};},calOn:function(f){calListeners.push(f);},calApply:function(){return calApply();},
+  twdMean:function(s){return twdMean(s);},
   cdSync:function(){var r=cdRem(Date.now());if(!cd.run||!fin(r))return NaN;var r2=Math.max(0,Math.round(r/60)*60);cd.end=Date.now()+r2*1000;return r2;}};
 // the Capacitor app sends the same calls as one event: {fn, arg}
 if(CAP)window.Capacitor.addListener("MaxRace","mrn",function(d){var f=d&&window.MRN[d.fn];if(f)f(d.arg);});
@@ -2731,7 +2746,7 @@ $("lnSave").onclick=function(){
 [].forEach.call(document.querySelectorAll("[data-cd]"),function(b){b.onclick=function(){setCD(Number(b.getAttribute("data-cd")));sMsg("");};});
 $("cdSync").onclick=function(){var r=cdRem(Date.now());if(!cd.run||!fin(r)){sMsg("Start the timer first.");return;}var r2=Math.max(0,Math.round(r/60)*60);cd.end=Date.now()+r2*1000;};
 $("cdStop").onclick=function(){if(cd.run){cd.rem=cdRem(Date.now());cd.run=false;$("cdStop").textContent="Go";}else if(fin(cd.rem)){setCD(cd.rem);$("cdStop").textContent="Stop";}};
-[["mRate","rate",1,30],["mTack","tack",0,60],["mLuff","luff",0,60]].forEach(function(q){
+[["mRate","rate",1,30],["mTack","tack",-10,60],["mLuff","luff",-10,60]].forEach(function(q){
   $(q[0]).onchange=function(e){var n=Number(e.target.value);if(fin(n)&&n>=q[2]&&n<=q[3]){manv[q[1]]=n;save("manv",manv);}else e.target.value=manv[q[1]];};
 });
 $("bowIn").onchange=function(e){var n=Number(e.target.value);if(fin(n)&&n>=0&&n<60){bowOff=n;save("bow",n);}else e.target.value=bowOff;};
@@ -3662,7 +3677,7 @@ setPolar(P);
 
 /* ---------- boat profiles ---------- */
 var profiles=null,activeId=null,applying=false;
-var PKEYS=["polar","manv","bow","nmea","skurl","src","boat"];
+var PKEYS=["polar","manv","bow","nmea","skurl","src","boat","calib"];
 function newId(){return "b"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
 function saveProfiles(){try{localStorage.setItem(SP+"profiles",JSON.stringify(profiles));localStorage.setItem(SP+"profile",JSON.stringify(activeId));}catch(e){}syncPush();}
 function activeProf(){if(!profiles)return null;for(var i=0;i<profiles.length;i++)if(profiles[i].id===activeId)return profiles[i];return null;}
@@ -3707,6 +3722,7 @@ function applyProfile(id,quiet){
   applying=false;
   setPolar(d.polar||makeDemo());
   manv=d.manv?JSON.parse(JSON.stringify(d.manv)):{rate:8,tack:6,luff:2};
+  calib=d.calib?JSON.parse(JSON.stringify(d.calib)):{mans:[],beats:[]};calSeen={};renderCalib();
   bowOff=d.bow||0;boatName=d.boat||p.name;
   var nm=d.nmea||{};$("nmProto").value=nm.proto||"tcp";$("nmHost").value=nm.host||"";$("nmPort").value=nm.port||"";$("skUrl").value=d.skurl||"";
   $("mRate").value=manv.rate;$("mTack").value=manv.tack;$("mLuff").value=manv.luff;$("bowIn").value=bowOff;$("boatIn").value=boatName;
@@ -3913,6 +3929,79 @@ if(HOSTED){
   }
 }
 if(load("src","sim")==="sk"&&load("skurl","")){setSource("sk");connectSK(load("skurl",""));}
+/* ---------- calibration (calib.js): manoeuvres and beats measured while sailing, kept with the boat ---------- */
+// With the simulator the measures go to a separate store that is not saved, so a real boat is never calibrated on made-up data.
+function calStore(){return source==="sim"?calSim:calib;}
+function calPolar(){return {bsp:polarBsp,up:function(tws){var T=targets(tws);return {twa:T.up.twa,bsp:T.up.bsp};}};}
+function calPush(now){
+  var h=fin(raw.hdg)?raw.hdg:S.hdg,b=fin(raw.bsp)?raw.bsp:S.bsp;if(!fin(h)||!fin(b))return;
+  calBuf.push({t:now/1000,hdg:h,bsp:b,twa:fin(raw.twa)?raw.twa:S.twa,twd:S.twd,tws:S.tws});
+  while(calBuf.length&&now/1000-calBuf[0].t>600)calBuf.shift();
+}
+function calLearn(){
+  if(!window.MRCalib||calBuf.length<90)return;
+  var now=Date.now()/1000,res=MRCalib.analyse(calBuf,calPolar()),c=calStore(),add=0,b0=calBuf[0].t;
+  res.mans.forEach(function(m){
+    // wait until the measure is complete: the loss needs 30 s after the turn
+    var timed=(m.type==="luff"||m.type==="tack")&&Math.abs(m.twa1)<60;
+    if(timed?(m.loss==null&&m.t>now-150):m.t>now-40)return;
+    if(c.mans.some(function(x){return Math.abs(x.t-m.t)<6;}))return;
+    m.src=source;c.mans.push(m);add++;calListeners.forEach(function(f){try{f(m);}catch(e){}});
+  });
+  res.beats.forEach(function(b){
+    if(b.t+b.dur>now-5||b.t<b0+5)return;                  // only finished beats seen from their start
+    if(c.beats.some(function(x){return Math.abs(x.t-b.t)<20;}))return;
+    c.beats.push(b);add++;
+  });
+  if(add){c.mans=c.mans.slice(-60);c.beats=c.beats.slice(-40);if(c===calib)save("calib",calib);renderCalib();}
+}
+function calSummary(c){c=c||calStore();return window.MRCalib?MRCalib.summarize(c.mans,c.beats):{};}
+function renderCalib(){
+  var o=$("calOut");if(!o)return;var c=calStore(),m=calSummary(c),parts=[],f=function(v,d){return fin(v)?(+v).toFixed(d==null?1:d):"–";};
+  if(!c.mans.length&&!c.beats.length){o.textContent=source==="sim"?"Simulator: steer with Helm to try it (not saved).":"Nothing measured yet: sail with the instruments, or load a race CSV.";o.className="msg";return;}
+  if(m.nRate)parts.push("Turn rate <b>"+f(fin(m.luffRate)?m.luffRate:m.rate)+"°/s</b> ("+m.nRate+" turns)");
+  if(m.nLuff)parts.push("Luff loss <b>"+f(m.luffLoss)+" s</b> ("+m.nLuff+")");
+  if(m.nTack)parts.push("Tack loss <b>"+f(m.tackLoss)+" s</b> ("+m.nTack+")");
+  if(fin(m.rec))parts.push("Back to 95% target after a tack in <b>"+f(m.rec,0)+" s</b>");
+  if(m.nBeat)parts.push("Close-hauled <b>"+f(m.pct,0)+"%</b> of polar ("+m.nBeat+" beats)");
+  if(m.nPairs)parts.push("TWD starboard − port <b>"+(m.twdTack>0?"+":"")+f(m.twdTack,0)+"°</b> ("+m.nPairs+" pairs)"+(Math.abs(m.twdTack)>=4&&m.nPairs>=2?" ⚠ check compass, AWA and leeway calibration":""));
+  var last=c.mans.slice(-5).reverse().map(function(x){var d=new Date(x.t*1000);return ("0"+d.getHours()).slice(-2)+":"+("0"+d.getMinutes()).slice(-2)+" "+x.type+" "+x.turn+"° at "+x.rate+"°/s"+(x.loss!=null?", lost "+x.loss+" s":"")+(x.guided?" (guided)":x.steady?"":" (unsteady, not used)");});
+  o.innerHTML=(source==="sim"?"<b>Simulator</b> (not saved) · ":"")+(parts.join(" · ")||"Turns measured, not enough for a value yet.")+(last.length?"<br><span style='opacity:.75'>"+last.join("<br>")+"</span>":"");
+  o.className="msg";
+}
+function calApply(){
+  var m=calSummary(),done=[],r=fin(m.luffRate)?m.luffRate:m.rate;
+  if(fin(r)&&r>=1&&r<=30){manv.rate=r;done.push("turn rate "+r+"°/s");}
+  if(m.nTack&&fin(m.tackLoss)){manv.tack=Math.max(-10,Math.min(60,m.tackLoss));done.push("tack loss "+manv.tack+" s");}
+  if(m.nLuff&&fin(m.luffLoss)){manv.luff=Math.max(-10,Math.min(60,m.luffLoss));done.push("luff loss "+manv.luff+" s");}
+  if(done.length&&source!=="sim")save("manv",manv);
+  $("mRate").value=manv.rate;$("mTack").value=manv.tack;$("mLuff").value=manv.luff;
+  return done;
+}
+// a saved race (MaxRace CSV): the same measures, from 1 s data where the log has it
+function calCsv(text){
+  var rows=text.trim().split(/\r?\n/),head=rows.shift().split(","),ix=function(n){return head.indexOf(n);};
+  var T=ix("time_utc"),H=ix("hdg_deg"),B=ix("stw_kt"),A=ix("twa_deg"),D=ix("twd_deg"),W=ix("tws_kt");
+  if(T<0||H<0||B<0)throw new Error("not a MaxRace race CSV");
+  var pts=rows.map(function(l){var c=l.split(",");return {t:Date.parse(c[T])/1000,hdg:+c[H],bsp:+c[B],twa:+c[A],twd:+c[D],tws:+c[W]};}).filter(function(p){return fin(p.t);});
+  var res=MRCalib.analyse(pts,calPolar()),n=0;
+  res.mans.forEach(function(m){if(!calib.mans.some(function(x){return Math.abs(x.t-m.t)<6;})){m.src="csv";calib.mans.push(m);n++;}});
+  res.beats.forEach(function(b){if(!calib.beats.some(function(x){return Math.abs(x.t-b.t)<20;})){calib.beats.push(b);n++;}});
+  calib.mans.sort(function(a,b){return a.t-b.t;});calib.beats.sort(function(a,b){return a.t-b.t;});
+  calib.mans=calib.mans.slice(-60);calib.beats=calib.beats.slice(-40);save("calib",calib);renderCalib();
+  var gaps=0;for(var i=1;i<pts.length;i++)if(pts[i].t-pts[i-1].t>8)gaps++;
+  return {mans:res.mans.length,beats:res.beats.length,sparse:gaps>pts.length*0.2};
+}
+$("calApply").onclick=function(){var d=calApply();calMsg(d.length?"Applied: "+d.join(", ")+(source==="sim"?" (simulator, not saved)":"")+".":"Nothing measured yet to apply.",d.length?"ok":"");};
+$("calClear").onclick=function(){var c=calStore();c.mans=[];c.beats=[];calSeen={};if(c===calib)save("calib",calib);renderCalib();};
+$("calGuide").onclick=function(){if(window.MRVoice)MRVoice.answer("calibrazione");};
+$("calCsv").onchange=function(e){var f=e.target.files[0];if(!f)return;var rd=new FileReader();
+  rd.onload=function(){try{var r=calCsv(rd.result);calMsg("Found "+r.mans+" manoeuvres and "+r.beats+" steady beats."+(r.sparse?" This log has many holes (screen off?): few manoeuvres can be measured.":""),"ok");}catch(err){calMsg("Could not read that file: "+err.message,"err");}e.target.value="";};
+  rd.readAsText(f);};
+function calMsg(t,cls){var o=$("calOut");renderCalib();o.innerHTML=t+"<br>"+o.innerHTML;if(cls)o.className="msg "+cls;}
+setInterval(function(){try{calLearn();}catch(e){}},5000);
+renderCalib();
+
 // simulator helm: press Helm to take the boat off the autopilot; the slider is the tiller and springs back to the centre
 function helmSet(on){helm.on=on;helm.to=null;helm.rud=0;helm.hold=NaN;var b=document.getElementById("helmBar"),r=document.getElementById("helmRud");
   if(!b)return;b.classList.toggle("off",!on);document.getElementById("helmOn").setAttribute("aria-pressed",on?"true":"false");r.value=0;}
@@ -3933,6 +4022,7 @@ function helmSet(on){helm.on=on;helm.to=null;helm.rud=0;helm.hold=NaN;var b=docu
 })();
 })();
 </script>
+<script src="calib.js"></script>
 <script src="target-tack.js"></script>
 <script src="targets.js"></script>
 <script src="voice.js"></script>

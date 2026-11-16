@@ -3675,11 +3675,21 @@ function applyProfile(id,quiet){
   else setSource("sim");
 }
 function captureAll(){var d={};PKEYS.forEach(function(k){var v=load(k,undefined);if(v!==undefined&&v!==null)d[k]=v;});return d;}
+// the team's boats, built in (same ids as on the Mac program, so sharing does not duplicate them)
+var PRESET_BOATS=[{"id":"bmv23x6m2msqz","name":"GRILLO PARLANTE","data":{"polar":{"name":"Custom polar","tws":[6,8,10,12,14,16,20,24],"cols":[{"a":[49.1,52,60,75,90,110,120,135,138.4,150],"v":[6.25,6.58,7.28,7.94,7.94,7.93,7.58,6.4,6.1,5.27]},{"a":[47.5,52,60,75,90,110,120,135,140.2,150],"v":[7.83,8.4,9.12,9.72,9.7,9.96,9.55,8.3,7.77,6.89]},{"a":[45.7,52,60,75,90,110,120,135,142,150],"v":[8.72,9.5,10.16,10.82,10.86,11.28,10.93,9.86,9.12,8.31]},{"a":[43.6,52,60,75,90,110,120,135,143.8,150],"v":[9.16,10.12,10.71,11.45,11.65,11.98,11.91,11.06,10.17,9.48]},{"a":[42.5,52,60,75,90,110,120,135,145.7,150],"v":[9.47,10.51,11.09,11.81,12.22,12.45,12.63,11.96,10.92,10.42]},{"a":[42,52,60,75,90,110,120,135,148.9,150],"v":[9.65,10.77,11.35,12.08,12.61,12.84,13.11,12.69,11.35,11.22]},{"a":[42.2,52,60,75,90,110,120,135,150,162.8],"v":[9.89,11.02,11.63,12.47,13.12,13.46,13.93,14.06,12.57,11.62]},{"a":[42.7,52,60,75,90,110,120,135,150,166.4],"v":[10,11.12,11.77,12.7,13.5,14.08,14.66,15.64,13.79,12.69]}],"pts":true,"demo":false},"nmea":{"proto":"tcp","host":"192.168.1.113","port":2055},"src":"nmea","boat":"GRILLO PARLANTE","manv":{"rate":6,"tack":10,"luff":2},"bow":30}},{"id":"bmv51v86dmflj","name":"CAPE31 MILKWAVE","data":{"boat":"CAPE31 MILKWAVE","src":"nmea","nmea":{"proto":"tcp","host":"192.168.1.113","port":2055},"polar":{"name":"Custom polar","tws":[4,6,8,10,12,14,16,20,24],"cols":[{"a":[45.4,52,60,75,90,110,120,135,139.3,150],"v":[3.77,4.14,4.44,4.65,4.5,4.55,4.4,3.91,3.69,3.23]},{"a":[42.7,52,60,75,90,110,120,135,142,150],"v":[5.17,5.78,6.08,6.3,6.19,6.43,6.32,5.63,5.18,4.71]},{"a":[40.7,52,60,75,90,110,120,135,145.3,150],"v":[6.09,6.8,7.03,7.19,7.17,7.56,7.51,7.04,6.29,5.97]},{"a":[38.8,52,60,75,90,110,120,135,148.9,150],"v":[6.51,7.3,7.57,7.85,7.82,8.36,8.52,7.98,7.09,7.01]},{"a":[38.7,52,60,75,90,110,120,135,150,150.3],"v":[6.7,7.5,7.85,8.38,8.56,8.94,9.37,9.04,7.91,7.9]},{"a":[38.6,52,60,75,90,110,120,135,146.5,150],"v":[6.81,7.64,8.03,8.67,9.22,9.49,10.04,10.29,9.17,8.83]},{"a":[38.5,52,60,75,90,110,120,135,145.3,150],"v":[6.87,7.75,8.18,8.92,9.65,10.01,10.69,11.54,10.48,9.96]},{"a":[38.6,52,60,75,90,110,120,135,144.3,150],"v":[6.97,7.9,8.37,9.23,10.28,11.28,11.9,13.42,13.87,13]},{"a":[39.7,52,60,75,90,110,120,135,149,150],"v":[6.97,7.87,8.39,9.41,10.72,12.41,13.06,15.35,16.83,16.66]}],"pts":true,"demo":false},"bow":10}}];
 (function initProfiles(){
   profiles=load("profiles",null);activeId=load("profile",null);
   if(!profiles||!profiles.length){
     profiles=[{id:newId(),name:boatName||"MY BOAT",data:captureAll(),t:0,auto:true}];activeId=profiles[0].id;saveProfiles();
   }
+  // add each built-in boat once: a boat you delete or rename stays that way
+  var seen=load("presetSeen",{}),del=load("profdel",{}),added=0;
+  PRESET_BOATS.forEach(function(b){
+    if(seen[b.id])return;seen[b.id]=1;
+    if(del[b.id]||profiles.some(function(p){return p.id===b.id||p.name===b.name;}))return;
+    profiles.push({id:b.id,name:b.name,data:JSON.parse(JSON.stringify(b.data)),t:1});added++;
+  });
+  save("presetSeen",seen);if(added)saveProfiles();
   if(!activeProf()){activeId=profiles[0].id;saveProfiles();}
   renderProfiles();
   // the claude.ai preview cannot hand out files; export works in the app and when the page is opened as a file

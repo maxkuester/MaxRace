@@ -204,11 +204,23 @@ public class MaxRacePlugin extends Plugin implements LocationListener, SensorEve
     private void say(String text, boolean flush) {
         if (tts == null) {
             tts = new android.speech.tts.TextToSpeech(getContext(), st -> {
-                if (st == android.speech.tts.TextToSpeech.SUCCESS) { tts.setLanguage(java.util.Locale.ITALIAN); tts.speak(text, android.speech.tts.TextToSpeech.QUEUE_ADD, null, "mr"); }
+                if (st == android.speech.tts.TextToSpeech.SUCCESS) { tts.setLanguage(java.util.Locale.ITALIAN); bestVoice(); tts.speak(text, android.speech.tts.TextToSpeech.QUEUE_ADD, null, "mr"); }
             });
             return;
         }
         tts.speak(text, flush ? android.speech.tts.TextToSpeech.QUEUE_FLUSH : android.speech.tts.TextToSpeech.QUEUE_ADD, null, "mr");
+    }
+    // the most natural Italian voice installed (Google's high quality ones), offline first: on the boat there is no internet
+    private void bestVoice() {
+        try {
+            android.speech.tts.Voice best = null;
+            for (android.speech.tts.Voice v : tts.getVoices()) {
+                if (v.getLocale() == null || !"it".equals(v.getLocale().getLanguage())) continue;
+                if (v.getFeatures() != null && v.getFeatures().contains(android.speech.tts.TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)) continue;
+                if (best == null || (v.isNetworkConnectionRequired() ? 0 : 1000) + v.getQuality() > (best.isNetworkConnectionRequired() ? 0 : 1000) + best.getQuality()) best = v;
+            }
+            if (best != null) tts.setVoice(best);
+        } catch (Exception e) { }
     }
     private void listen() {
         main.post(() -> {

@@ -402,11 +402,26 @@ final class VoiceIO: NSObject, AVSpeechSynthesizerDelegate {
         session()
         if flush { synth.stopSpeaking(at: .immediate) }
         let u = AVSpeechUtterance(string: text)
-        u.voice = AVSpeechSynthesisVoice(language: "it-IT")
-        u.rate = 0.53
+        let v = VoiceIO.bestVoice()
+        u.voice = v
+        // the Premium and Enhanced voices sound natural at the normal rate; the basic one needs a little push
+        u.rate = (v?.quality ?? .default) == .default ? 0.53 : AVSpeechUtteranceDefaultSpeechRate
         synth.speak(u)
     }
     func hush() { synth.stopSpeaking(at: .immediate) }
+
+    // the most natural Italian voice on this phone: Premium, then Enhanced (downloaded in Settings › Accessibility ›
+    // Spoken Content › Voices › Italian), else the basic one. Checked each time, so a voice downloaded later is used at once.
+    static var lastVoice = ""
+    static func bestVoice() -> AVSpeechSynthesisVoice? {
+        let it = AVSpeechSynthesisVoice.speechVoices().filter { $0.language == "it-IT" }
+        let v = it.max { a, b in a.quality.rawValue < b.quality.rawValue } ?? AVSpeechSynthesisVoice(language: "it-IT")
+        if let v = v, v.identifier != lastVoice { lastVoice = v.identifier; log("voice \(v.name) quality=\(v.quality.rawValue) of \(it.map { "\($0.name):\($0.quality.rawValue)" })") }
+        return v
+    }
+    static func voiceQuality() -> String {
+        switch bestVoice()?.quality ?? .default { case .premium: return "premium"; case .enhanced: return "enhanced"; default: return "default" }
+    }
 
     func listen() {
         VoiceIO.log("listen, speech auth=\(SFSpeechRecognizer.authorizationStatus().rawValue)")

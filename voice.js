@@ -39,7 +39,8 @@
     if (!window.speechSynthesis) return;
     if (opts.flush) speechSynthesis.cancel();
     var u = new SpeechSynthesisUtterance(text); u.lang = "it-IT"; u.rate = 1.05;
-    var v = speechSynthesis.getVoices().filter(function (x) { return /^it/i.test(x.lang); })[0]; if (v) u.voice = v;
+    var vs = speechSynthesis.getVoices().filter(function (x) { return /^it/i.test(x.lang); });
+    var v = vs.filter(function (x) { return /premium|enhanced|migliorat|natural|neural/i.test(x.name); })[0] || vs[0]; if (v) u.voice = v;
     speechSynthesis.speak(u);
   }
   function hush() { var m = M(); if (m && m.native) m.nat({ cmd: "sayStop" }); else if (window.speechSynthesis) speechSynthesis.cancel(); }
@@ -136,10 +137,13 @@
   }
 
   // ---------- who is who, said aloud: the AIS name when we have it, else where the boat is from us and how far ----------
+  // sopra / sotto: on the windward or leeward side of our course, as said on board; a prua / a poppa when dead ahead or astern
   function where(brg) {
     var S = M().own(), h = fin(S.hdg) ? S.hdg : S.cog; if (!fin(brg) || !fin(h)) return "";
-    var r = wrap180(brg - h), a = Math.abs(r), sd = r >= 0 ? "dritta" : "sinistra";
-    return a < 20 ? "a prua" : a < 70 ? "al mascone di " + sd : a < 110 ? "al traverso di " + sd : a < 160 ? "al giardinetto di " + sd : "a poppa";
+    var r = wrap180(brg - h), a = Math.abs(r);
+    if (a < 15) return "a prua"; if (a > 165) return "a poppa";
+    if (!fin(S.twa)) return r >= 0 ? "a dritta" : "a sinistra";
+    return ((r >= 0) === (S.twa >= 0) ? "sopra" : "sotto") + (a < 75 ? " avanti" : a > 105 ? " dietro" : " al traverso");
   }
   function who(c) {
     if (c.named) return String(c.name);

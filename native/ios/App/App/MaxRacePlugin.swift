@@ -131,6 +131,8 @@ public class MaxRacePlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelega
             voice.say(b["text"] as? String ?? "", flush: (b["flush"] as? NSNumber)?.boolValue ?? false)
         case "sayStop":
             voice.hush()
+        case "audioOn":
+            voice.audioOn()   // the voice pack plays from the page: the earphones route must be on
         case "listen":
             voice.listen()
         case "voiceOn":

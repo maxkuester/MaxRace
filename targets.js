@@ -483,7 +483,8 @@
     drawMarks(g, ox, oy, s, dpr);
     // if we tack now (the page works it out from the targets it has): margin in boat lengths, under each box
     var TX = {}, bl = (window.MRVoice && window.MRVoice.cfg && window.MRVoice.cfg.boatLen) || 9.6;
-    try { (window.MRT.tackCross ? window.MRT.tackCross() : []).forEach(function (c) { TX[c.id] = c; }); } catch (e) {}
+    try { (window.MRT.tackCross ? window.MRT.tackCross() : []).forEach(function (c) { TX[c.id] = c; (c.camIds || []).forEach(function (ci) { TX[ci] = c; }); }); } catch (e) {}
+    var cams = window.MRT.cam ? window.MRT.cam() : {};
     st.last.forEach(function (T) {
       // the box glides to where the boat is; the numbers on screen move only for a real change (hysteresis)
       if (!T.dbox) T.dbox = T.box.slice();
@@ -501,7 +502,8 @@
       g.textAlign = "center"; g.shadowColor = "#000"; g.shadowBlur = 4 * dpr;
       g.fillStyle = col; g.font = "700 " + 26 * dpr + "px 'Barlow Condensed',sans-serif"; g.fillText(lead, x + w / 2, y - 26 * dpr);
       g.fillStyle = "#fff"; g.font = "600 " + 15 * dpr + "px 'Barlow Condensed',sans-serif";
-      g.fillText("T" + T.id + " · " + Dd + " m" + (fin(Bb) ? " · " + ("00" + wrap360(Bb)).slice(-3) + "°" : "") + tk, x + w / 2, y - 8 * dpr);
+      var mt = cams["C" + T.id] && cams["C" + T.id].match;            // the AIS boat it is, named from the entry list
+      g.fillText((mt ? String(mt).slice(0, 16) : "T" + T.id) + " · " + Dd + " m" + (fin(Bb) ? " · " + ("00" + wrap360(Bb)).slice(-3) + "°" : "") + tk, x + w / 2, y - 8 * dpr);
       var c = TX["C" + T.id];
       if (c) {
         var Lm = hold("tack", c.margin, Math.max(3, c.err / 2)), close = Math.abs(Lm) < c.err, Ll = Math.abs(Lm) / bl;

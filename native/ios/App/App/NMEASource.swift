@@ -409,6 +409,7 @@ final class VoiceIO: NSObject, AVSpeechSynthesizerDelegate {
         synth.speak(u)
     }
     func hush() { synth.stopSpeaking(at: .immediate) }
+    func audioOn() { session() }
 
     // the most natural Italian voice on this phone: Premium, then Enhanced (downloaded in Settings › Accessibility ›
     // Spoken Content › Voices › Italian), else the basic one. Checked each time, so a voice downloaded later is used at once.

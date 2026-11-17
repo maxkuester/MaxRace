@@ -15,7 +15,7 @@ const os = require("os");
 const path = require("path");
 const scan = require("./scan");
 
-const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".woff2": "font/woff2", ".png": "image/png", ".json": "application/json", ".js": "text/javascript; charset=utf-8" };
+const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".woff2": "font/woff2", ".png": "image/png", ".json": "application/json", ".js": "text/javascript; charset=utf-8", ".m4a": "audio/mp4" };
 
 function createSource(log) {
   const clients = new Set();
@@ -126,6 +126,13 @@ function startServer(opts) {
     if (p === "/targets.js") return sendFile(res, path.join(o.root, "targets.js"));
     if (p === "/voice.js") return sendFile(res, path.join(o.root, "voice.js"));
     if (p === "/calib.js") return sendFile(res, path.join(o.root, "calib.js"));
+    // the tactician's own voice (scripts/voicepack-gen.py): the player and its clips, when they are on this computer
+    if (p === "/voicepack.js") return sendFile(res, path.join(o.root, "voicepack.js"));
+    if (p.startsWith("/voicepack/")) {
+      const f = path.normalize(path.join(o.root, p));
+      if (!f.startsWith(path.join(o.root, "voicepack") + path.sep)) return json(res, { ok: false, error: "not found" }, 404);
+      return sendFile(res, f);
+    }
     if (p === "/target-tack.js") return sendFile(res, path.join(o.root, "scripts", "target-tack.js"));
     if (p.startsWith("/vendor/")) {
       const f = path.normalize(path.join(o.root, p));

@@ -627,6 +627,18 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
       <p style="margin-top:6px">Tick the boats to follow. The selection is used with "Selected only" and is kept for next time.</p>
       <ul class="mklist aislist" id="aisList"></ul>
     </div>
+    <div>
+      <h3>Entry list</h3>
+      <p>The boats of the regatta, one per line: name, model, sail number, MMSI if known. Paste it from the race site or a spreadsheet, or import a CSV. AIS boats and camera targets then get their name and model ("Suspiria, Swan 42"), in the voice too.</p>
+      <textarea id="entTxt" rows="6" style="width:100%;font:15px/1.3 ui-monospace,monospace" placeholder="Nome;Modello;N. velico;MMSI&#10;Suspiria;Swan 42;ITA 12345;247001137&#10;Milkwave;Cape 31;ITA 31;"></textarea>
+      <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:8px">
+        <button class="btn" id="entSave">Use this list</button>
+        <label class="btn">Import CSV <input type="file" id="entFile" accept=".csv,.txt,.tsv,text/*" hidden></label>
+        <button class="btn" id="entClear">Clear</button>
+      </div>
+      <div class="msg" id="entMsg"></div>
+      <ul class="mklist" id="entList"></ul>
+    </div>
   </div>
 </dialog>
 
@@ -808,6 +820,7 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
         <label><input type="checkbox" id="vcCount"> Say the start countdown</label>
         <label><input type="checkbox" id="vcBurn"> With the time to burn</label>
         <label><input type="checkbox" id="vcGo"> Call the luff to the line ("bolina tra 10… Bolina, ora!")</label>
+        <label><input type="checkbox" id="vcMine"> Speak with my voice <span id="vcMineSt" style="color:var(--muted)"></span></label>
         <label><input type="checkbox" id="vcTack"> Call when a tack starts to cross a boat ("Puoi virare: passi davanti a…")</label>
         <label>Boat length <input type="number" id="vcLen" step="0.1" style="width:60px"> m</label>
       </div>
@@ -1661,7 +1674,7 @@ function drawMap(){
   ctx.save();ctx.translate(bp[0],bp[1]);ctx.rotate((S.hdg||0)*D2R);
   ctx.fillStyle=col("--ink");ctx.beginPath();ctx.moveTo(0,-15*d);ctx.lineTo(7*d,10*d);ctx.lineTo(0,6*d);ctx.lineTo(-7*d,10*d);ctx.closePath();ctx.fill();ctx.restore();
   // if we tack now (tackCross): a line under each boat, + green we pass ahead, − red behind, ≈ too close to call
-  var TX=tackCross(),TXm={},bl=boatLenM();TX.forEach(function(c){TXm[c.id]=c;});
+  var TX=tackCross(),TXm={},bl=boatLenM();TX.forEach(function(c){TXm[c.id]=c;(c.camIds||[]).forEach(function(ci){TXm[ci]=c;});});
   function txTag(c,x,y,a){if(!c)return;var L=c.margin/bl,close=Math.abs(c.margin)<c.err;
     ctx.save();if(a)ctx.globalAlpha=a;tag(close?"↻ al pelo":"↻ "+(L>0?"+":"−")+(Math.abs(L)<10?Math.abs(L).toFixed(1).replace(".",","):Math.round(Math.abs(L)))+"L",x,y,close?col("--accent"):L>0?col("--stbd"):col("--port"),13,"left");ctx.restore();}
   // AIS targets: who is ahead on the wind axis, and a CPA warning
@@ -1683,7 +1696,7 @@ function drawMap(){
     ctx.strokeStyle=warn?col("--port"):col("--accent");ctx.lineWidth=2*d;ctx.beginPath();
     ctx.moveTo(0,-12*d);ctx.lineTo(6*d,8*d);ctx.lineTo(-6*d,8*d);ctx.closePath();ctx.stroke();
     if(picked){ctx.fillStyle=col("--accent");ctx.fill();}ctx.restore();
-    var nmName=(a.name||a.mmsi||"AIS").toString().slice(0,14);
+    var en=entryFor(a),nmName=((en&&en.name)||a.name||a.mmsi||"AIS").toString().slice(0,14)+(en&&en.model?" · "+String(en.model).slice(0,10):"");
     tag(nmName,p[0]+10*d,p[1]-9*d,col("--accent"),11,"left");
     // our lead on the ladder, same as the camera targets: + and green = we are ahead of that boat
     if(wv){var upw=(R0[0]*wv[0]+R0[1]*wv[1])*1852,ours=goingUp?-upw:upw;
@@ -1707,7 +1720,7 @@ function drawMap(){
     else{ctx.rotate(Math.PI/4);ctx.rect(-6*d,-6*d,12*d,12*d);}
     ctx.stroke();if(age<15)ctx.fill();ctx.restore();
     ctx.save();ctx.globalAlpha=fade;
-    tag((tg.name||(/^\d/.test(id)?"T"+id:id))+(age>=60?" · "+Math.round(age/60)+"′":""),p[0]+11*d,p[1]-9*d,col("--ink"),11,"left");
+    tag((tg.match||tg.name||(/^\d/.test(id)?"T"+id:id))+(age>=60?" · "+Math.round(age/60)+"′":""),p[0]+11*d,p[1]-9*d,col("--ink"),11,"left");
     if(lead!=null)tag(Math.abs(lead)<1?"pari":(lead>=0?"+":"−")+Math.abs(Math.round(lead))+" m",p[0]+11*d,p[1]+7*d,cc,13,"left");
     txTag(TXm[id],p[0]+11*d,p[1]+23*d);
     ctx.restore();
@@ -2011,6 +2024,70 @@ function targetsIn(j){
    (COG/SOG against HDG/BSP), starting manv.tack seconds late (the seconds a tack costs, from the profile or the
    calibration). Theirs: AIS COG/SOG, or the camera fix carried on. margin (m) = how far the other boat is from the
    crossing point when we get there, along its track: + we pass ahead, − we pass behind. err (m): below it, "too close". */
+/* ---------- entry list: the boats of the regatta, by name, model, sail number and MMSI ----------
+   Pasted or imported as text (CSV from the race site, a spreadsheet copied, one boat per line). Each AIS boat is matched
+   to its entry (MMSI, else name, else sail number in the AIS name), and a camera target that sits where an AIS boat is
+   takes that boat's name. The voice and the map then say "Suspiria, Swan 42" instead of "T3" or an MMSI. */
+var entries=load("entries",{title:"",list:[]});
+function normKey(s){return String(s||"").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^A-Z0-9]/g,"");}
+var MODEL_RE=/\b(swan|club ?swan|cape ?31|j\/?\d|j ?\d{2,3}|first ?\d|grand ?soleil|gs ?\d{2}|farr ?\d|x-?\d{2}|xp ?\d{2}|mylius|melges|tp ?52|beneteau|dufour|italia ?\d|solaris|elan|dehler|sun ?fast|sunfast|figaro|m32|fast ?\d{2}|wally|baltic|vismara|felci|ice ?\d{2}|more ?\d{2}|comet|this ?\d|mat ?\d{2}|arcona|salona|hanse|bavaria|jeanneau|sun odyssey|oceanis|ker ?\d{2}|carkeek|botin|ic ?37|maxi|mini ?6\.?50|class 40|cookson|archambault|a\d{2}|nm ?\d{2}|psaros|smeralda|mumm|platu|esse|ufo|protagonist|ice cat)\b/i;
+function parseEntries(text){
+  var lines=String(text||"").split(/\r?\n/).filter(function(l){return l.trim();});   // not trimmed: a leading tab is an empty column
+  if(!lines.length)return [];
+  var sep=["\t",";","|",","].filter(function(c){return lines[0].indexOf(c)>=0;})[0];
+  var split=function(l){return sep?l.split(sep).map(function(x){return x.trim().replace(/^"|"$/g,"");}):l.trim().split(/\s{2,}/);};
+  var head=split(lines[0]).map(function(h){return h.toLowerCase();}),col={};
+  head.forEach(function(h,i){
+    if(col.name==null&&/^(nome|name|yacht|boat|barca|imbarcazione)/.test(h))col.name=i;
+    else if(col.model==null&&/(modell|model|tipo|type|design|class)/.test(h))col.model=i;
+    else if(col.sail==null&&/(vel|sail|numero|n\.|no\.|nr)/.test(h))col.sail=i;
+    else if(col.mmsi==null&&/mmsi/.test(h))col.mmsi=i;
+    else if(col.club==null&&/(club|circolo|societ)/.test(h))col.club=i;
+  });
+  var hasHead=col.name!=null;
+  return lines.slice(hasHead?1:0).map(function(l){
+    var c=split(l),e={name:"",model:"",sail:"",mmsi:"",club:""};
+    if(hasHead){["name","model","sail","mmsi","club"].forEach(function(k){if(col[k]!=null)e[k]=(c[col[k]]||"").trim();});}
+    else c.forEach(function(x){
+      if(!x)return;
+      if(!e.mmsi&&/^\d{9}$/.test(x))e.mmsi=x;
+      else if(!e.sail&&/^[A-Z]{3}[ -]?\d{1,5}$|^\d{1,5}$/i.test(x))e.sail=x.toUpperCase();
+      else if(!e.model&&MODEL_RE.test(x))e.model=x;
+      else if(!e.name)e.name=x;
+      else if(!e.model)e.model=x;
+      else if(!e.club)e.club=x;
+    });
+    e.name=e.name.replace(/\s+/g," ");return e;
+  }).filter(function(e){return e.name||e.sail||e.mmsi;});
+}
+function entryFor(a){
+  if(!entries.list.length||!a)return null;
+  var nk=normKey(a.name),i,e;
+  for(i=0;i<entries.list.length;i++){e=entries.list[i];if(a.mmsi&&e.mmsi&&String(e.mmsi)===String(a.mmsi))return e;}
+  if(nk.length>=3)for(i=0;i<entries.list.length;i++){e=entries.list[i];if(normKey(e.name)===nk||(e.sail&&normKey(e.sail)===nk))return e;}
+  if(nk.length>=4)for(i=0;i<entries.list.length;i++){e=entries.list[i];var en=normKey(e.name),sn=normKey(e.sail),dg=sn.replace(/^[A-Z]+/,"");
+    if((en.length>=4&&(nk.indexOf(en)>=0||en.indexOf(nk)>=0))||(dg.length>=3&&nk.indexOf(dg)>=0))return e;}
+  return null;
+}
+// every boat we know now, where it is now: AIS (dead reckoned from its last report) and camera fixes (carried on);
+// a camera fix within 25% of its range (40 m at least) of an AIS boat IS that boat: one entry, the AIS one, with its name
+function fleetBoats(){
+  var now=Date.now(),kx=111120*Math.cos((S.lat||0)*D2R),out=[],aisB=[];
+  Object.keys(ais).forEach(function(k){var a=ais[k];if(!fin(a.lat)||!fin(a.cog)||!fin(a.sog)||now-a.t>180000)return;
+    var age=(now-a.t)/1000,p=a.sog>0.5?dest(a.lat,a.lon,a.cog,a.sog*age/3600):a,e=entryFor(a);
+    var nm=a.name&&String(a.name).trim()?String(a.name).trim():"";
+    var b={id:k,src:"ais",lat:p.lat,lon:p.lon,cog:a.cog,sog:a.sog,known:true,camIds:[],mmsi:a.mmsi,
+      name:e&&e.name?e.name:nm||("AIS "+(a.mmsi||"")),named:!!((e&&e.name)||nm),model:e?e.model:"",sail:e?e.sail:""};
+    aisB.push(b);out.push(b);});
+  Object.keys(camTargets).forEach(function(id){var tg=camTargets[id],age=(now-tg.t)/1000;if(age>300||tg.cog==null)return;
+    var p=tg.sog>0?dest(tg.lat,tg.lon,tg.cog,tg.sog*Math.max(0,age)/3600):tg,best=null,bd=Infinity;
+    aisB.forEach(function(b){var d=Math.hypot((b.lon-p.lon)*kx,(b.lat-p.lat)*111120);if(d<bd){bd=d;best=b;}});
+    if(best&&bd<Math.max(40,0.25*(tg.dist||0))){best.camIds.push(id);tg.match=best.name;return;}
+    tg.match=null;
+    out.push({id:id,src:"cam",lat:p.lat,lon:p.lon,cog:tg.cog,sog:tg.sog,known:tg.tackKnown,dist0:tg.dist,camIds:[id],
+      name:tg.name||(/^C\d/.test(id)?"T"+id.slice(1):id),named:!!tg.name,model:"",sail:""});});
+  return out;
+}
 function boatLenM(){var v=window.MRVoice&&window.MRVoice.cfg&&window.MRVoice.cfg.boatLen;return v>2?v:9.6;}
 function tackCross(){
   var out=[];if(!fin(S.lat)||!fin(S.twa)||!fin(S.tws)||Math.abs(S.twa)>=90)return out;
@@ -2021,13 +2098,7 @@ function tackCross(){
     if(Math.hypot(cur[0],cur[1])>1.5)cur=[0,0];}                               // more than 3 kn: bad data, not current
   var u=[Math.sin(h2*D2R),Math.cos(h2*D2R)],loss=fin(manv.tack)?Math.max(0,manv.tack):6;
   var Wv=[u[0]*vt+cur[0],u[1]*vt+cur[1]],P0=[-u[0]*vt*loss,-u[1]*vt*loss];      // late start = behind on the new course
-  var kx=111120*Math.cos(S.lat*D2R),now=Date.now(),boats=[];
-  Object.keys(camTargets).forEach(function(id){var tg=camTargets[id],age=(now-tg.t)/1000;if(age>300||tg.cog==null)return;
-    var p=tg.sog>0?dest(tg.lat,tg.lon,tg.cog,tg.sog*Math.max(0,age)/3600):tg;
-    boats.push({id:id,named:!!tg.name,name:tg.name||(/^C\d/.test(id)?"T"+id.slice(1):id),lat:p.lat,lon:p.lon,cog:tg.cog,sog:tg.sog,src:"cam",known:tg.tackKnown,dist0:tg.dist});});
-  Object.keys(ais).forEach(function(k){var a=ais[k];if(!fin(a.lat)||!fin(a.cog)||!fin(a.sog)||now-a.t>180000)return;
-    var age=(now-a.t)/1000,p=a.sog>0.5?dest(a.lat,a.lon,a.cog,a.sog*age/3600):a;
-    boats.push({id:k,named:!!(a.name&&String(a.name).trim()),name:a.name||("AIS "+(a.mmsi||"")),lat:p.lat,lon:p.lon,cog:a.cog,sog:a.sog,src:"ais",known:true});});
+  var kx=111120*Math.cos(S.lat*D2R),boats=fleetBoats();
   var cr=function(p,q){return p[0]*q[1]-p[1]*q[0];};
   boats.forEach(function(b){
     var R=[(b.lon-S.lon)*kx,(b.lat-S.lat)*111120],dist=Math.hypot(R[0],R[1]);if(dist>1500)return;
@@ -2037,7 +2108,7 @@ function tackCross(){
     if(s<loss||s>600)return;                                                      // the crossing is behind us, or too far
     var X=[P0[0]+Wv[0]*s,P0[1]+Wv[1]*s];
     var err=b.src==="cam"?Math.max(8,0.1*dist):10;
-    out.push({id:b.id,name:b.name,named:b.named,src:b.src,known:b.known,margin:vb*(tau-s),t:s,dist:dist,err:err,brg:wrap360(Math.atan2(R[0],R[1])*R2D),
+    out.push({id:b.id,name:b.name,named:b.named,model:b.model,sail:b.sail,camIds:b.camIds,src:b.src,known:b.known,margin:vb*(tau-s),t:s,dist:dist,err:err,brg:wrap360(Math.atan2(R[0],R[1])*R2D),
       x:{lat:S.lat+X[1]/111120,lon:S.lon+X[0]/kx},h2:h2});
   });
   return out.sort(function(a,b){return a.t-b.t;});
@@ -2071,7 +2142,7 @@ window.MRT={own:function(){return S;},targets:targetsIn,nat:nat,native:NATIVE,
   layInfo:function(){return layInfo();},dtwBtw:function(){return dtwBtw();},perfNow:function(){return perfNow();},vmc:function(){return vmcNow();},
   setCD:function(sec){setCD(sec);$("cdStop").textContent="Stop";},
   calib:function(){return {sum:calSummary(),store:calStore(),sim:source==="sim"};},calOn:function(f){calListeners.push(f);},calApply:function(){return calApply();},
-  twdMean:function(s){return twdMean(s);},tackCross:function(){return tackCross();},
+  twdMean:function(s){return twdMean(s);},tackCross:function(){return tackCross();},fleetBoats:function(){return fleetBoats();},entries:function(){return entries;},
   cdSync:function(){var r=cdRem(Date.now());if(!cd.run||!fin(r))return NaN;var r2=Math.max(0,Math.round(r/60)*60);cd.end=Date.now()+r2*1000;return r2;}};
 // the Capacitor app sends the same calls as one event: {fn, arg}
 if(CAP)window.Capacitor.addListener("MaxRace","mrn",function(d){var f=d&&window.MRN[d.fn];if(f)f(d.arg);});
@@ -2428,14 +2499,15 @@ function renderAis(){
   [].forEach.call(document.querySelectorAll("#aisSeg button"),function(b){b.setAttribute("aria-pressed",b.getAttribute("data-m")===aisCfg.mode);});
   $("aisCpa").checked=!!aisCfg.cpa;aisCfg.names=aisCfg.names||{};
   var now=Date.now(),rows=Object.keys(ais).map(function(k){var a=ais[k];
-    var dd=fin(a.lat)&&fin(S.lat)?bearDist(S.lat,S.lon,a.lat,a.lon).d:NaN;return {id:aisId(k,a),name:a.name||"",mmsi:a.mmsi||"",d:dd,age:fin(a.t)?(now-a.t)/1000:NaN};});
+    var dd=fin(a.lat)&&fin(S.lat)?bearDist(S.lat,S.lon,a.lat,a.lon).d:NaN,e=entryFor(a);
+    return {id:aisId(k,a),name:(e&&e.name)||a.name||"",model:e?e.model:"",sail:e?e.sail:"",mmsi:a.mmsi||"",d:dd,age:fin(a.t)?(now-a.t)/1000:NaN};});
   // boats selected earlier but not received now stay listed, so the selection is not lost
   aisCfg.sel.forEach(function(id){if(!rows.some(function(r){return r.id===id;}))rows.push({id:id,name:aisCfg.names[id]||"",mmsi:id,d:NaN,age:NaN,gone:true});});
   // stable order by name, so the list does not jump while ticking boats
   rows.sort(function(x,y){return (x.name||"~"+x.mmsi).localeCompare(y.name||"~"+y.mmsi);});
   $("aisList").innerHTML=rows.length?rows.map(function(r){
     var on=aisCfg.sel.indexOf(r.id)>=0;
-    return '<li'+(on?' class="on"':'')+'><label class="aisrow"><input type="checkbox" data-id="'+esc(r.id)+'"'+(on?' checked':'')+'><b>'+esc(r.name||("MMSI "+r.mmsi))+'</b></label>'+
+    return '<li'+(on?' class="on"':'')+'><label class="aisrow"><input type="checkbox" data-id="'+esc(r.id)+'"'+(on?' checked':'')+'><b>'+esc(r.name||("MMSI "+r.mmsi))+'</b>'+(r.model||r.sail?' <span>'+esc([r.model,r.sail].filter(Boolean).join(" · "))+'</span>':'')+'</label>'+
       '<span>'+(r.name?"MMSI "+esc(r.mmsi)+" · ":"")+(r.gone?"not received now":(fin(r.d)?r.d.toFixed(2)+" nm":"--")+(fin(r.age)?" · seen "+Math.round(r.age)+" s ago":""))+'</span></li>';
   }).join(""):'<li class="empty">No AIS targets received yet.</li>';
 }
@@ -2453,6 +2525,24 @@ $("aisList").onchange=function(e){
 $("aisAll").onclick=function(){Object.keys(ais).forEach(function(k){var id=aisId(k,ais[k]);if(aisCfg.sel.indexOf(id)<0)aisCfg.sel.push(id);if(ais[k].name)aisCfg.names[id]=ais[k].name;});saveAis();renderAis();};
 $("aisNone").onclick=function(){aisCfg.sel=[];saveAis();renderAis();};
 aisButton();
+function renderEntries(msg){
+  $("entTxt").value=entries.list.map(function(e){return [e.name,e.model,e.sail,e.mmsi].join(";").replace(/;+$/,"");}).join("\n");
+  var matched=0;Object.keys(ais).forEach(function(k){if(entryFor(ais[k]))matched++;});
+  $("entMsg").textContent=msg||(entries.list.length?entries.list.length+" boats in the list"+(Object.keys(ais).length?", "+matched+" of "+Object.keys(ais).length+" AIS boats matched now":"")+".":"No entry list.");
+  $("entMsg").className="msg"+(msg&&/not|no /i.test(msg)?" err":"");
+}
+function useEntries(text,from){
+  var L=parseEntries(text);
+  if(!L.length){renderEntries("No boats found in "+from+". One boat per line: name; model; sail number; MMSI.");return;}
+  entries={title:from,list:L};save("entries",entries);renderEntries();
+  var nm=L.filter(function(e){return e.model;}).length;
+  $("entMsg").textContent=L.length+" boats from "+from+(nm<L.length?" ("+(L.length-nm)+" without a model)":"")+".";
+  if(view==="map"||view==="both")drawMap();
+}
+$("entSave").onclick=function(){useEntries($("entTxt").value,"the text");};
+$("entClear").onclick=function(){entries={title:"",list:[]};save("entries",entries);renderEntries();};
+$("entFile").onchange=function(e){var f=e.target.files[0];if(!f)return;var r=new FileReader();r.onload=function(){useEntries(r.result,f.name);};r.readAsText(f);e.target.value="";};
+(function(){var o=$("aisBtn").onclick;$("aisBtn").onclick=function(){o();renderEntries();};})();
 
 /* ---------- start line ---------- */
 var manv=load("manv",{rate:8,tack:6,luff:2}), line=load("line",null), lineDemo=false, cd={run:false,end:0,rem:NaN}, bowOff=load("bow",0);
@@ -4077,19 +4167,22 @@ function helmSet(on){helm.on=on;helm.to=null;helm.rud=0;helm.hold=NaN;var b=docu
 <script src="calib.js"></script>
 <script src="target-tack.js"></script>
 <script src="targets.js"></script>
+<script src="voicepack.js"></script>
 <script src="voice.js"></script>
 <script>
 // voice settings and the mic button state (voice.js)
 (function(){
   var V=window.MRVoice;if(!V)return;
   var el=function(id){return document.getElementById(id);};
-  el("vcStem").checked=V.cfg.stem;el("vcShifts").checked=V.cfg.shifts;el("vcShiftDeg").value=V.cfg.shiftDeg;el("vcCount").checked=V.cfg.countdown;el("vcBurn").checked=V.cfg.burn;el("vcGo").checked=V.cfg.goCall;el("vcTack").checked=V.cfg.tackCall;el("vcLen").value=V.cfg.boatLen;
+  el("vcStem").checked=V.cfg.stem;el("vcShifts").checked=V.cfg.shifts;el("vcShiftDeg").value=V.cfg.shiftDeg;el("vcCount").checked=V.cfg.countdown;el("vcBurn").checked=V.cfg.burn;el("vcGo").checked=V.cfg.goCall;el("vcTack").checked=V.cfg.tackCall;el("vcMine").checked=V.cfg.myVoice;el("vcLen").value=V.cfg.boatLen;
   el("vcStem").onchange=function(){V.set("stem",this.checked);};
   el("vcShifts").onchange=function(){V.set("shifts",this.checked);};
   el("vcShiftDeg").onchange=function(){var x=+this.value;if(x>=2&&x<=20)V.set("shiftDeg",x);};
   el("vcCount").onchange=function(){V.set("countdown",this.checked);};
   el("vcBurn").onchange=function(){V.set("burn",this.checked);};
-  el("vcGo").onchange=function(){V.set("goCall",this.checked);};el("vcTack").onchange=function(){V.set("tackCall",this.checked);};
+  el("vcGo").onchange=function(){V.set("goCall",this.checked);};el("vcTack").onchange=function(){V.set("tackCall",this.checked);};el("vcMine").onchange=function(){V.set("myVoice",this.checked);};
+  var packSt=function(j){el("vcMineSt").textContent=j?"("+Object.keys(j.files||{}).length+" pieces"+(j.made?", made "+j.made:"")+")":"(no voice pack in this app: make it on the Mac with scripts/voicepack-gen.py)";};
+  V.st.onPack=packSt;
   el("vcLen").onchange=function(){var x=+this.value;if(x>2&&x<60)V.set("boatLen",x);};
   var t0=0;
   V.st.onState=function(o){el("vMic").setAttribute("aria-pressed",o.listening||o.watching?"true":"false");if(o.listening){el("vcMsg").textContent="Listening… "+(o.heard||"");}};

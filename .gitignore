@@ -5,3 +5,4 @@ fonts/
 native/www/
 # boat detector for Targets, fetched by scripts/fetch-vendor.js
 vendor/
+voicepack/

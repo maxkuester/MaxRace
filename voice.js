@@ -23,7 +23,7 @@
   function save(k, v) { try { localStorage.setItem("mrv." + k, JSON.stringify(v)); } catch (e) {} }
   var M = function () { return window.MRT; };
 
-  var cfg = { stem: load("stem", true), shifts: load("shifts", true), shiftDeg: load("shiftDeg", 5), countdown: load("countdown", true), burn: load("burn", true), goCall: load("goCall", true), tackCall: load("tackCall", true), boatLen: load("boatLen", 9.6) };
+  var cfg = { stem: load("stem", true), shifts: load("shifts", true), shiftDeg: load("shiftDeg", 5), countdown: load("countdown", true), burn: load("burn", true), goCall: load("goCall", true), tackCall: load("tackCall", true), myVoice: load("myVoice", true), boatLen: load("boatLen", 9.6) };
   var st = { listening: false, watch: null, lastShift: 0, lastCd: null, onState: null, heard: "" };
 
   // ---------- speaking ----------
@@ -35,6 +35,8 @@
     st.lastSaid = text;
     if (st.onSay) st.onSay(text);
     var m = M();
+    // the tactician's own voice when the voice pack has every piece of this sentence; else the phone's voice
+    if (cfg.myVoice && window.MRVoicePack && window.MRVoicePack.play(text, !!opts.flush)) { if (m && m.native) m.nat({ cmd: "audioOn" }); return; }
     if (m && m.native) { m.nat({ cmd: "say", text: text, flush: !!opts.flush }); return; }
     if (!window.speechSynthesis) return;
     if (opts.flush) speechSynthesis.cancel();
@@ -43,7 +45,7 @@
     var v = vs.filter(function (x) { return /premium|enhanced|migliorat|natural|neural/i.test(x.name); })[0] || vs[0]; if (v) u.voice = v;
     speechSynthesis.speak(u);
   }
-  function hush() { var m = M(); if (m && m.native) m.nat({ cmd: "sayStop" }); else if (window.speechSynthesis) speechSynthesis.cancel(); }
+  function hush() { if (window.MRVoicePack) window.MRVoicePack.stop(); var m = M(); if (m && m.native) m.nat({ cmd: "sayStop" }); else if (window.speechSynthesis) speechSynthesis.cancel(); }
 
   // Italian for numbers the voice reads well
   function n1(x) { return (Math.round(x * 10) / 10).toString().replace(".", ","); }
@@ -145,27 +147,17 @@
     if (!fin(S.twa)) return r >= 0 ? "a dritta" : "a sinistra";
     return ((r >= 0) === (S.twa >= 0) ? "sopra" : "sotto") + (a < 75 ? " avanti" : a > 105 ? " dietro" : " al traverso");
   }
-  function who(c) {
-    if (c.named) return String(c.name);
+  // "Suspiria, Swan 42, sopra al traverso" with the entry list; "Suspiria" from AIS alone; else where it is and how far
+  function who(c, short) {
+    if (c.named) { var w0 = short ? "" : where(c.brg); return String(c.name) + (c.model ? ", " + c.model + (short ? "," : "") : "") + (w0 ? ", " + w0 : ""); }
     var w = where(c.brg);
     return "la barca " + (w ? w + " " : "") + "a " + metres(c.dist);
   }
 
   // ---------- crossings: who passes ahead, from camera targets (with tack) and AIS ----------
   function boats() {
-    var m = M(), S = m.own(), out = [], now = Date.now();
-    var cam = m.cam ? m.cam() : {};
-    Object.keys(cam).forEach(function (id) {
-      var tg = cam[id], age = (now - tg.t) / 1000; if (age > 300 || tg.cog == null) return;
-      var p = tg.sog > 0 ? m.dest(tg.lat, tg.lon, tg.cog, tg.sog * Math.min(age, 300) / 3600) : tg;
-      out.push({ name: tg.name || id, named: !!tg.name, lat: p.lat, lon: p.lon, cog: tg.cog, sog: tg.sog, known: tg.tackKnown });
-    });
-    var ais = m.ais ? m.ais() : {};
-    Object.keys(ais).forEach(function (k) {
-      var a = ais[k]; if (!fin(a.lat) || !fin(a.cog) || !fin(a.sog) || now - a.t > 180000) return;
-      out.push({ name: a.name || ("AIS " + (a.mmsi || "")), named: !!(a.name && String(a.name).trim()), lat: a.lat, lon: a.lon, cog: a.cog, sog: a.sog, known: true });
-    });
-    return out;
+    // the page's list: AIS and camera boats where they are now, one per boat, with the entry list's name and model
+    var m = M(); return m.fleetBoats ? m.fleetBoats().map(function (b) { b.known = b.known !== false; return b; }) : [];
   }
   // where a boat crosses our course line, and by how much ahead or behind us (+ = it passes ahead of us)
   function crossOf(b, S) {
@@ -178,7 +170,7 @@
     var along = u[0] * (R[0] + V[0] * tx) + u[1] * (R[1] + V[1] * tx);
     if (along < 0) return null;
     var up = fin(S.twd) ? R[0] * Math.sin(S.twd * D2R) + R[1] * Math.cos(S.twd * D2R) : 0;
-    return { name: b.name, named: b.named, brg: wrap360(Math.atan2(R[0], R[1]) * R2D), t: tx, margin: along - so * tx, up: up, dist: Math.hypot(R[0], R[1]), known: b.known };
+    return { name: b.name, named: b.named, model: b.model, brg: wrap360(Math.atan2(R[0], R[1]) * R2D), t: tx, margin: along - so * tx, up: up, dist: Math.hypot(R[0], R[1]), known: b.known };
   }
   function crossList(side) {
     var S = M().own(); if (!fin(S.lat)) return null;
@@ -187,7 +179,7 @@
     }).sort(function (a, b) { return a.t - b.t; }).slice(0, 3);
   }
   function crossText(c) {
-    var w = who(c), W = w.charAt(0).toUpperCase() + w.slice(1);
+    var w = who(c, true), W = w.charAt(0).toUpperCase() + w.slice(1);
     var s = c.margin > 0 ? W + " ci passa davanti di " : "passiamo davanti " + (c.named ? "a " : "al") + w + " di ";
     return s + lengths(c.margin) + ", tra " + secs(c.t) + (c.known ? "" : ", mure non sicure");
   }
@@ -316,7 +308,10 @@
   // ---------- "se viro?": if we tack now, who do we pass ahead of, and who do we have to duck (page: tackCross) ----------
   function tackLen(c) {
     var l = Math.abs(c.margin) / cfg.boatLen;
-    return l < 1.5 ? "una lunghezza" : l < 10 ? n1(Math.round(l * 2) / 2) + " lunghezze" : Math.round(l) + " lunghezze";
+    var h = Math.round(l * 2) / 2, w = Math.floor(h), half = h - w ? " e mezza" : "";
+    if (l < 1.25) return "una lunghezza";
+    if (l >= 10) return Math.round(l) + " lunghezze";
+    return (w === 1 ? "una lunghezza" : w + " lunghezze") + half;
   }
   function tackText(c) {
     var w = who(c), s = w.charAt(0).toUpperCase() + w.slice(1) + ": " + (Math.abs(c.margin) < c.err ? "al pelo" : (c.margin > 0 ? "passi davanti di " : "passi dietro di ") + tackLen(c));
@@ -459,6 +454,6 @@
   window.MRVoice = {
     listen: listen, say: say, answer: answer, goWatch: goWatch, goInfo: goInfo, tackAsk: tackAsk, tackWatch: tackWatch, calibrate: calibrate, cfg: cfg, st: st, stemOn: stemOn,
     set: function (k, v) { cfg[k] = v; save(k, v); if (k === "stem") stemOn(v); },
-    init: function () { if (cfg.stem) stemOn(true); }
+    init: function () { if (cfg.stem) stemOn(true); if (window.MRVoicePack) window.MRVoicePack.load("voicepack/").then(function (j) { if (st.onPack) st.onPack(j); }).catch(function () { if (st.onPack) st.onPack(null); }); }
   };
 })();

@@ -9,3 +9,8 @@ Build the MaxRace target demo videos from a phone video. Run with `swift <file>.
 5. `sharp.swift` / `enhance.swift` — sharpest frame of a region, and backlight recovery (reading the mast displays).
 
 These are for demos only: live, the phone compass and the H5000 give heading, TWD and camera direction on every frame.
+
+"Se viro?" demo, from a target demo video already rendered (when the original video is gone):
+6. `labels-ocr.swift <demo.mp4> labels.json` — reads the drawn labels ("T3 · 98 m · 142°", lead) 5 times a second.
+7. `node tack-margin.js` (in the folder of labels.json; set hdg/twd/beat/bsp/loss inside) — the tack margin of each boat, same geometry as tackCross() in the app.
+8. `tack-overlay.swift <demo.mp4> labels-m.json answer.wav <out.mp4>` — draws "↻ se viri −2,5L" beside each label, the question and the answer, and adds the voice.

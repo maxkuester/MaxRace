@@ -429,7 +429,7 @@ final class VoiceIO: NSObject, AVSpeechSynthesizerDelegate {
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
         // sailing words the Italian dictation does not know: "layline" came out as "eye-liner"
-        req.contextualStrings = ["layline", "lay line", "pinga", "comitato", "pin", "incrocio", "incroci", "sopravento", "sottovento", "boa", "bolina", "countdown", "sincro", "brucio", "bruciare", "mure", "VMG", "target", "calibrazione", "applica calibrazione", "orzata", "virata"]
+        req.contextualStrings = ["layline", "lay line", "pinga", "comitato", "pin", "incrocio", "incroci", "sopravento", "sottovento", "boa", "bolina", "countdown", "sincro", "brucio", "bruciare", "mure", "VMG", "target", "calibrazione", "applica calibrazione", "orzata", "virata", "se viro", "posso virare"]
         if rec.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }   // at sea there is no internet
         request = req; lastText = ""
         let input = engine.inputNode, fmt = input.outputFormat(forBus: 0)

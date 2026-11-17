@@ -808,6 +808,7 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
         <label><input type="checkbox" id="vcCount"> Say the start countdown</label>
         <label><input type="checkbox" id="vcBurn"> With the time to burn</label>
         <label><input type="checkbox" id="vcGo"> Call the luff to the line ("bolina tra 10… Bolina, ora!")</label>
+        <label><input type="checkbox" id="vcTack"> Call when a tack starts to cross a boat ("Puoi virare: passi davanti a…")</label>
         <label>Boat length <input type="number" id="vcLen" step="0.1" style="width:60px"> m</label>
       </div>
       <div class="msg" id="vcMsg"></div>
@@ -1658,6 +1659,10 @@ function drawMap(){
     ctx.strokeStyle=col("--ink");ctx.lineWidth=1.5*d;ctx.beginPath();ctx.moveTo(bp[0],bp[1]);ctx.lineTo(v[0],v[1]);ctx.stroke();}
   ctx.save();ctx.translate(bp[0],bp[1]);ctx.rotate((S.hdg||0)*D2R);
   ctx.fillStyle=col("--ink");ctx.beginPath();ctx.moveTo(0,-15*d);ctx.lineTo(7*d,10*d);ctx.lineTo(0,6*d);ctx.lineTo(-7*d,10*d);ctx.closePath();ctx.fill();ctx.restore();
+  // if we tack now (tackCross): a line under each boat, + green we pass ahead, − red behind, ≈ too close to call
+  var TX=tackCross(),TXm={},bl=boatLenM();TX.forEach(function(c){TXm[c.id]=c;});
+  function txTag(c,x,y,a){if(!c)return;var L=c.margin/bl,close=Math.abs(c.margin)<c.err;
+    ctx.save();if(a)ctx.globalAlpha=a;tag(close?"↻ al pelo":"↻ "+(L>0?"+":"−")+(Math.abs(L)<10?Math.abs(L).toFixed(1).replace(".",","):Math.round(Math.abs(L)))+"L",x,y,close?col("--accent"):L>0?col("--stbd"):col("--port"),13,"left");ctx.restore();}
   // AIS targets: who is ahead on the wind axis, and a CPA warning
   var nowA=Date.now(),wv=fin(S.twd)?[Math.sin(S.twd*D2R),Math.cos(S.twd*D2R)]:null,goingUp=!fin(S.twa)||Math.abs(S.twa)<90;
   var me=fin(S.cog)&&fin(S.sog)?[Math.sin(S.cog*D2R)*S.sog,Math.cos(S.cog*D2R)*S.sog]:[0,0];
@@ -1682,6 +1687,7 @@ function drawMap(){
     // our lead on the ladder, same as the camera targets: + and green = we are ahead of that boat
     if(wv){var upw=(R0[0]*wv[0]+R0[1]*wv[1])*1852,ours=goingUp?-upw:upw;
       tag(Math.abs(ours)<1?"pari":(ours>=0?"+":"−")+Math.abs(Math.round(ours))+" m",p[0]+10*d,p[1]+7*d,ours>=0?col("--stbd"):col("--port"),12,"left");}
+    txTag(TXm[key],p[0]+10*d,p[1]+(warn?39:23)*d);
     if(warn){ctx.strokeStyle=col("--port");ctx.lineWidth=2*d;ctx.beginPath();ctx.arc(p[0],p[1],18*d,0,2*Math.PI);ctx.stroke();
       tag("CPA "+Math.round(cpa*1852)+" m "+fmtTime(tc*3600),p[0]+10*d,p[1]+23*d,col("--port"),12,"left");}
   });
@@ -1702,8 +1708,17 @@ function drawMap(){
     ctx.save();ctx.globalAlpha=fade;
     tag((tg.name||(/^\d/.test(id)?"T"+id:id))+(age>=60?" · "+Math.round(age/60)+"′":""),p[0]+11*d,p[1]-9*d,col("--ink"),11,"left");
     if(lead!=null)tag(Math.abs(lead)<1?"pari":(lead>=0?"+":"−")+Math.abs(Math.round(lead))+" m",p[0]+11*d,p[1]+7*d,cc,13,"left");
+    txTag(TXm[id],p[0]+11*d,p[1]+23*d);
     ctx.restore();
   });
+  // if we tack now: our course on the other tack (dashed) to the last crossing, a dot where it crosses each boat
+  if(TX.length){
+    var far=0,last=null;TX.forEach(function(c){var q=sc(nm(c.x.lat,c.x.lon));c._p=q;if(c.t>=far){far=c.t;last=q;}});
+    ctx.strokeStyle=col("--ink");ctx.globalAlpha=0.7;ctx.lineWidth=1.5*d;ctx.setLineDash([6*d,5*d]);
+    ctx.beginPath();ctx.moveTo(bp[0],bp[1]);ctx.lineTo(last[0]+(last[0]-bp[0])*0.1,last[1]+(last[1]-bp[1])*0.1);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;
+    TX.forEach(function(c){var close=Math.abs(c.margin)<c.err;
+      ctx.fillStyle=close?col("--accent"):c.margin>0?col("--stbd"):col("--port");ctx.beginPath();ctx.arc(c._p[0],c._p[1],5*d,0,2*Math.PI);ctx.fill();});
+  }
   // wind arrow and north, top left
   var wx=34*d,wy=34*d;ctx.strokeStyle=col("--line");ctx.lineWidth=1*d;ctx.beginPath();ctx.arc(wx,wy,24*d,0,2*Math.PI);ctx.stroke();
   if(fin(S.twd)){ctx.save();ctx.translate(wx,wy);ctx.rotate((S.twd+180)*D2R);ctx.strokeStyle=col("--accent");ctx.fillStyle=col("--accent");ctx.lineWidth=3*d;
@@ -1990,6 +2005,42 @@ function targetsIn(j){
   });
   if(view==="map"||view==="both")drawMap();
 }
+/* "if we tack now": where our course on the other tack crosses each nearby boat's track, and who passes ahead.
+   Ours: close-hauled target on the other tack (20 s mean TWD), target speed, plus the current we measure now
+   (COG/SOG against HDG/BSP), starting manv.tack seconds late (the seconds a tack costs, from the profile or the
+   calibration). Theirs: AIS COG/SOG, or the camera fix carried on. margin (m) = how far the other boat is from the
+   crossing point when we get there, along its track: + we pass ahead, − we pass behind. err (m): below it, "too close". */
+function boatLenM(){var v=window.MRVoice&&window.MRVoice.cfg&&window.MRVoice.cfg.boatLen;return v>2?v:9.6;}
+function tackCross(){
+  var out=[];if(!fin(S.lat)||!fin(S.twa)||!fin(S.tws)||Math.abs(S.twa)>=90)return out;
+  var twd=twdMean(20);if(!fin(twd))twd=S.twd;if(!fin(twd))return out;
+  var T=targets(S.tws),side=S.twa>=0?1:-1,h2=wrap360(twd+side*T.up.twa),vt=T.up.bsp/KN;   // m/s
+  var cur=[0,0];
+  if(fin(S.sog)&&fin(S.cog)&&fin(S.bsp)&&fin(S.hdg)){cur=[(Math.sin(S.cog*D2R)*S.sog-Math.sin(S.hdg*D2R)*S.bsp)/KN,(Math.cos(S.cog*D2R)*S.sog-Math.cos(S.hdg*D2R)*S.bsp)/KN];
+    if(Math.hypot(cur[0],cur[1])>1.5)cur=[0,0];}                               // more than 3 kn: bad data, not current
+  var u=[Math.sin(h2*D2R),Math.cos(h2*D2R)],loss=fin(manv.tack)?Math.max(0,manv.tack):6;
+  var Wv=[u[0]*vt+cur[0],u[1]*vt+cur[1]],P0=[-u[0]*vt*loss,-u[1]*vt*loss];      // late start = behind on the new course
+  var kx=111120*Math.cos(S.lat*D2R),now=Date.now(),boats=[];
+  Object.keys(camTargets).forEach(function(id){var tg=camTargets[id],age=(now-tg.t)/1000;if(age>300||tg.cog==null)return;
+    var p=tg.sog>0?dest(tg.lat,tg.lon,tg.cog,tg.sog*Math.max(0,age)/3600):tg;
+    boats.push({id:id,named:!!tg.name,name:tg.name||(/^C\d/.test(id)?"T"+id.slice(1):id),lat:p.lat,lon:p.lon,cog:tg.cog,sog:tg.sog,src:"cam",known:tg.tackKnown,dist0:tg.dist});});
+  Object.keys(ais).forEach(function(k){var a=ais[k];if(!fin(a.lat)||!fin(a.cog)||!fin(a.sog)||now-a.t>180000)return;
+    var age=(now-a.t)/1000,p=a.sog>0.5?dest(a.lat,a.lon,a.cog,a.sog*age/3600):a;
+    boats.push({id:k,named:!!(a.name&&String(a.name).trim()),name:a.name||("AIS "+(a.mmsi||"")),lat:p.lat,lon:p.lon,cog:a.cog,sog:a.sog,src:"ais",known:true});});
+  var cr=function(p,q){return p[0]*q[1]-p[1]*q[0];};
+  boats.forEach(function(b){
+    var R=[(b.lon-S.lon)*kx,(b.lat-S.lat)*111120],dist=Math.hypot(R[0],R[1]);if(dist>1500)return;
+    var V=[Math.sin(b.cog*D2R)*b.sog/KN,Math.cos(b.cog*D2R)*b.sog/KN],vb=Math.hypot(V[0],V[1]);if(vb<0.5)return;
+    var den=cr(Wv,V);if(Math.abs(den)<0.3*Math.hypot(Wv[0],Wv[1])*vb)return;   // nearly parallel: no crossing
+    var D=[R[0]-P0[0],R[1]-P0[1]],s=cr(D,V)/den,tau=cr(D,Wv)/den;                // P0+Wv*s = R+V*tau
+    if(s<loss||s>600)return;                                                      // the crossing is behind us, or too far
+    var X=[P0[0]+Wv[0]*s,P0[1]+Wv[1]*s];
+    var err=b.src==="cam"?Math.max(8,0.1*dist):10;
+    out.push({id:b.id,name:b.name,named:b.named,src:b.src,known:b.known,margin:vb*(tau-s),t:s,dist:dist,err:err,brg:wrap360(Math.atan2(R[0],R[1])*R2D),
+      x:{lat:S.lat+X[1]/111120,lon:S.lon+X[0]/kx},h2:h2});
+  });
+  return out.sort(function(a,b){return a.t-b.t;});
+}
 window.MRN=Object.assign(window.MRN||{},{
   lines:function(a){
     if(source!=="nmea")return;
@@ -2019,7 +2070,7 @@ window.MRT={own:function(){return S;},targets:targetsIn,nat:nat,native:NATIVE,
   layInfo:function(){return layInfo();},dtwBtw:function(){return dtwBtw();},perfNow:function(){return perfNow();},vmc:function(){return vmcNow();},
   setCD:function(sec){setCD(sec);$("cdStop").textContent="Stop";},
   calib:function(){return {sum:calSummary(),store:calStore(),sim:source==="sim"};},calOn:function(f){calListeners.push(f);},calApply:function(){return calApply();},
-  twdMean:function(s){return twdMean(s);},
+  twdMean:function(s){return twdMean(s);},tackCross:function(){return tackCross();},
   cdSync:function(){var r=cdRem(Date.now());if(!cd.run||!fin(r))return NaN;var r2=Math.max(0,Math.round(r/60)*60);cd.end=Date.now()+r2*1000;return r2;}};
 // the Capacitor app sends the same calls as one event: {fn, arg}
 if(CAP)window.Capacitor.addListener("MaxRace","mrn",function(d){var f=d&&window.MRN[d.fn];if(f)f(d.arg);});
@@ -4031,13 +4082,13 @@ function helmSet(on){helm.on=on;helm.to=null;helm.rud=0;helm.hold=NaN;var b=docu
 (function(){
   var V=window.MRVoice;if(!V)return;
   var el=function(id){return document.getElementById(id);};
-  el("vcStem").checked=V.cfg.stem;el("vcShifts").checked=V.cfg.shifts;el("vcShiftDeg").value=V.cfg.shiftDeg;el("vcCount").checked=V.cfg.countdown;el("vcBurn").checked=V.cfg.burn;el("vcGo").checked=V.cfg.goCall;el("vcLen").value=V.cfg.boatLen;
+  el("vcStem").checked=V.cfg.stem;el("vcShifts").checked=V.cfg.shifts;el("vcShiftDeg").value=V.cfg.shiftDeg;el("vcCount").checked=V.cfg.countdown;el("vcBurn").checked=V.cfg.burn;el("vcGo").checked=V.cfg.goCall;el("vcTack").checked=V.cfg.tackCall;el("vcLen").value=V.cfg.boatLen;
   el("vcStem").onchange=function(){V.set("stem",this.checked);};
   el("vcShifts").onchange=function(){V.set("shifts",this.checked);};
   el("vcShiftDeg").onchange=function(){var x=+this.value;if(x>=2&&x<=20)V.set("shiftDeg",x);};
   el("vcCount").onchange=function(){V.set("countdown",this.checked);};
   el("vcBurn").onchange=function(){V.set("burn",this.checked);};
-  el("vcGo").onchange=function(){V.set("goCall",this.checked);};
+  el("vcGo").onchange=function(){V.set("goCall",this.checked);};el("vcTack").onchange=function(){V.set("tackCall",this.checked);};
   el("vcLen").onchange=function(){var x=+this.value;if(x>2&&x<60)V.set("boatLen",x);};
   var t0=0;
   V.st.onState=function(o){el("vMic").setAttribute("aria-pressed",o.listening||o.watching?"true":"false");if(o.listening){el("vcMsg").textContent="Listening… "+(o.heard||"");}};

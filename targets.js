@@ -481,6 +481,9 @@
     }
     if (/tgdebug/.test(location.search) && fin(st.hz)) { g.strokeStyle = "#ff0"; g.lineWidth = 1 * dpr; g.beginPath(); g.moveTo(0, oy + st.hz * s); g.lineTo(cw, oy + st.hz * s); g.stroke(); }
     drawMarks(g, ox, oy, s, dpr);
+    // if we tack now (the page works it out from the targets it has): margin in boat lengths, under each box
+    var TX = {}, bl = (window.MRVoice && window.MRVoice.cfg && window.MRVoice.cfg.boatLen) || 9.6;
+    try { (window.MRT.tackCross ? window.MRT.tackCross() : []).forEach(function (c) { TX[c.id] = c; }); } catch (e) {}
     st.last.forEach(function (T) {
       // the box glides to where the boat is; the numbers on screen move only for a real change (hysteresis)
       if (!T.dbox) T.dbox = T.box.slice();
@@ -499,6 +502,12 @@
       g.fillStyle = col; g.font = "700 " + 26 * dpr + "px 'Barlow Condensed',sans-serif"; g.fillText(lead, x + w / 2, y - 26 * dpr);
       g.fillStyle = "#fff"; g.font = "600 " + 15 * dpr + "px 'Barlow Condensed',sans-serif";
       g.fillText("T" + T.id + " · " + Dd + " m" + (fin(Bb) ? " · " + ("00" + wrap360(Bb)).slice(-3) + "°" : "") + tk, x + w / 2, y - 8 * dpr);
+      var c = TX["C" + T.id];
+      if (c) {
+        var Lm = hold("tack", c.margin, Math.max(3, c.err / 2)), close = Math.abs(Lm) < c.err, Ll = Math.abs(Lm) / bl;
+        g.fillStyle = close ? "#f5b400" : Lm > 0 ? "#3ddc84" : "#ff5b5b"; g.font = "700 " + 22 * dpr + "px 'Barlow Condensed',sans-serif";
+        g.fillText(close ? "↻ al pelo" : "↻ " + (Lm > 0 ? "+" : "−") + (Ll < 10 ? (Math.round(Ll * 2) / 2).toString().replace(".", ",") : Math.round(Ll)) + "L", x + w / 2, y + h + 24 * dpr);
+      }
       g.shadowBlur = 0;
     });
   }

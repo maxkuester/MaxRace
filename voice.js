@@ -2,6 +2,7 @@
 // answers in the earphones, with the boat's own data. Everything runs on the phone, no internet needed.
 //
 //   "incrocio le barche sopra?"        who crosses ahead of whom, then keeps you posted until the crossing is done
+//   "se viro?" / "posso virare?"      if we tack now: ahead of or behind each nearby boat on our tack, in boat lengths
 //   "il vento?" / "rotazione 5 minuti" TWD shift and pressure over the last minutes
 //   "pinga la comitato" / "pinga pin"  "tre, due, uno, ora!" and the line end is taken on "ora"
 //   "linea" / "quanto manca"           countdown, distance and time to the line, time to burn
@@ -22,7 +23,7 @@
   function save(k, v) { try { localStorage.setItem("mrv." + k, JSON.stringify(v)); } catch (e) {} }
   var M = function () { return window.MRT; };
 
-  var cfg = { stem: load("stem", true), shifts: load("shifts", true), shiftDeg: load("shiftDeg", 5), countdown: load("countdown", true), burn: load("burn", true), goCall: load("goCall", true), boatLen: load("boatLen", 9.6) };
+  var cfg = { stem: load("stem", true), shifts: load("shifts", true), shiftDeg: load("shiftDeg", 5), countdown: load("countdown", true), burn: load("burn", true), goCall: load("goCall", true), tackCall: load("tackCall", true), boatLen: load("boatLen", 9.6) };
   var st = { listening: false, watch: null, lastShift: 0, lastCd: null, onState: null, heard: "" };
 
   // ---------- speaking ----------
@@ -83,6 +84,7 @@
     var t = q.toLowerCase();
     if (/\b(stop|basta|zitto|silenzio|ferma)\b/.test(t)) { stopWatch(); hush(); if (st.cal) { clearInterval(st.cal.tick); st.cal = null; } say("Ok.", { flush: true }); return; }
     if (/ping|pinga|pingo|pinghiamo/.test(t)) return pingLine(/pin\b|boa|sinistra|pin$/.test(t.replace(/ping[a-z]*/g, "")) ? "pin" : "boat");
+    if (/se vir|posso virare|possiamo virare|virando|viro e pass|se cambio mure|se cambiamo mure|virata pass/.test(t)) return tackAsk();
     if (/incroc|passo davanti|passiamo davanti|passo dietro|chi passa/.test(t)) return crossing(/sopra|sopravento/.test(t) ? "up" : /sotto|sottovento/.test(t) ? "down" : "all", true);
     if (/lay ?-?line|eye ?-?liner|liner|lain|leila|le linee|linee|virata|virare|viro|strambo|strambare/.test(t)) return laylines();
     if (/calibra|taratura|tarare/.test(t)) return /appl|salva|usa/.test(t) ? calApplyV() : calibrate();
@@ -95,7 +97,7 @@
     if (/vento|rotaz|salto|ruota|gira|raffica|pressione/.test(t)) { var mm = t.match(/(\d+|un|uno|due|tre|quattro|cinque|sei|dieci)\s*minut/); return wind(mm ? word(mm[1]) : 2); }
     if (/boa|marca|mark|bearing/.test(t)) return mark();
     if (/velocit|target|polare|come andiamo|andiamo|vmg/.test(t)) return speed();
-    say("Non ho capito. Puoi chiedere: incroci, vento, linea, pinga comitato, boa, layline, velocità.");
+    say("Non ho capito. Puoi chiedere: incroci, se viro, vento, linea, pinga comitato, boa, layline, velocità.");
   }
   function word(x) { return { un: 1, uno: 1, due: 2, tre: 3, quattro: 4, cinque: 5, sei: 6, dieci: 10 }[x] || +x || 2; }
 
@@ -133,6 +135,18 @@
     }
   }
 
+  // ---------- who is who, said aloud: the AIS name when we have it, else where the boat is from us and how far ----------
+  function where(brg) {
+    var S = M().own(), h = fin(S.hdg) ? S.hdg : S.cog; if (!fin(brg) || !fin(h)) return "";
+    var r = wrap180(brg - h), a = Math.abs(r), sd = r >= 0 ? "dritta" : "sinistra";
+    return a < 20 ? "a prua" : a < 70 ? "al mascone di " + sd : a < 110 ? "al traverso di " + sd : a < 160 ? "al giardinetto di " + sd : "a poppa";
+  }
+  function who(c) {
+    if (c.named) return String(c.name);
+    var w = where(c.brg);
+    return "la barca " + (w ? w + " " : "") + "a " + metres(c.dist);
+  }
+
   // ---------- crossings: who passes ahead, from camera targets (with tack) and AIS ----------
   function boats() {
     var m = M(), S = m.own(), out = [], now = Date.now();
@@ -140,12 +154,12 @@
     Object.keys(cam).forEach(function (id) {
       var tg = cam[id], age = (now - tg.t) / 1000; if (age > 300 || tg.cog == null) return;
       var p = tg.sog > 0 ? m.dest(tg.lat, tg.lon, tg.cog, tg.sog * Math.min(age, 300) / 3600) : tg;
-      out.push({ name: tg.name || id, lat: p.lat, lon: p.lon, cog: tg.cog, sog: tg.sog, known: tg.tackKnown });
+      out.push({ name: tg.name || id, named: !!tg.name, lat: p.lat, lon: p.lon, cog: tg.cog, sog: tg.sog, known: tg.tackKnown });
     });
     var ais = m.ais ? m.ais() : {};
     Object.keys(ais).forEach(function (k) {
       var a = ais[k]; if (!fin(a.lat) || !fin(a.cog) || !fin(a.sog) || now - a.t > 180000) return;
-      out.push({ name: a.name || ("AIS " + (a.mmsi || "")), lat: a.lat, lon: a.lon, cog: a.cog, sog: a.sog, known: true });
+      out.push({ name: a.name || ("AIS " + (a.mmsi || "")), named: !!(a.name && String(a.name).trim()), lat: a.lat, lon: a.lon, cog: a.cog, sog: a.sog, known: true });
     });
     return out;
   }
@@ -160,7 +174,7 @@
     var along = u[0] * (R[0] + V[0] * tx) + u[1] * (R[1] + V[1] * tx);
     if (along < 0) return null;
     var up = fin(S.twd) ? R[0] * Math.sin(S.twd * D2R) + R[1] * Math.cos(S.twd * D2R) : 0;
-    return { name: b.name, t: tx, margin: along - so * tx, up: up, dist: Math.hypot(R[0], R[1]), known: b.known };
+    return { name: b.name, named: b.named, brg: wrap360(Math.atan2(R[0], R[1]) * R2D), t: tx, margin: along - so * tx, up: up, dist: Math.hypot(R[0], R[1]), known: b.known };
   }
   function crossList(side) {
     var S = M().own(); if (!fin(S.lat)) return null;
@@ -169,8 +183,8 @@
     }).sort(function (a, b) { return a.t - b.t; }).slice(0, 3);
   }
   function crossText(c) {
-    var who = c.name.replace(/^C(\d+)$/, "T$1");
-    var s = c.margin > 0 ? who + " ci passa davanti di " : "passiamo davanti a " + who + " di ";
+    var w = who(c), W = w.charAt(0).toUpperCase() + w.slice(1);
+    var s = c.margin > 0 ? W + " ci passa davanti di " : "passiamo davanti " + (c.named ? "a " : "al") + w + " di ";
     return s + lengths(c.margin) + ", tra " + secs(c.t) + (c.known ? "" : ", mure non sicure");
   }
   function crossing(side, first) {
@@ -181,14 +195,14 @@
     say(L.map(crossText).join(". ") + ".", { flush: first });
     // keep the tactician posted: a new answer when a margin changes by a length or flips, and when it is done
     stopWatch();
-    var last = {}; L.forEach(function (c) { last[c.name] = c.margin; });
+    var last = {}, wl = {}; L.forEach(function (c) { last[c.name] = c.margin; wl[c.name] = who(c); });
     var until = Date.now() + 5 * 60000;
     st.watch = setInterval(function () {
       if (Date.now() > until) { stopWatch(); return; }
       var N = crossList(side) || [], msgs = [];
       Object.keys(last).forEach(function (n) {
         var c = N.filter(function (x) { return x.name === n; })[0];
-        if (!c) { msgs.push("incrocio con " + n.replace(/^C(\d+)$/, "T$1") + " fatto"); delete last[n]; return; }
+        if (!c) { msgs.push("incrocio con " + (wl[n] || n) + " fatto"); delete last[n]; return; }
         if (Math.sign(c.margin) !== Math.sign(last[n]) || Math.abs(c.margin - last[n]) >= cfg.boatLen) { msgs.push(crossText(c)); last[n] = c.margin; }
       });
       if (msgs.length) say(msgs.join(". ") + ".");
@@ -295,6 +309,43 @@
     say(key === 0 ? (q.k === "luff" ? "Bolina, ora!" : "Vira, ora!") : name + " tra " + key, { flush: true });
   }
 
+  // ---------- "se viro?": if we tack now, who do we pass ahead of, and who do we have to duck (page: tackCross) ----------
+  function tackLen(c) {
+    var l = Math.abs(c.margin) / cfg.boatLen;
+    return l < 1.5 ? "una lunghezza" : l < 10 ? n1(Math.round(l * 2) / 2) + " lunghezze" : Math.round(l) + " lunghezze";
+  }
+  function tackText(c) {
+    var w = who(c), s = w.charAt(0).toUpperCase() + w.slice(1) + ": " + (Math.abs(c.margin) < c.err ? "al pelo" : (c.margin > 0 ? "passi davanti di " : "passi dietro di ") + tackLen(c));
+    return s + (c.src === "cam" && !c.known ? ", mure non sicure" : "");
+  }
+  function tackAsk() {
+    var m = M(), S = m.own();
+    if (!m.tackCross) return;
+    if (!fin(S.lat)) { say("Non ho la nostra posizione."); return; }
+    if (!fin(S.twa) || Math.abs(S.twa) >= 90) { say("Siamo in poppa: il calcolo della virata vale di bolina."); return; }
+    var L = m.tackCross().filter(function (c) { return c.dist <= 800; }).sort(function (a, b) { return a.dist - b.dist; }).slice(0, 3);
+    if (!L.length) { say("Virando non incroci nessuna barca vicina. Inquadrale con la camera, o servono gli AIS."); return; }
+    say("Virando. " + L.map(tackText).join(". ") + ".", { flush: true });
+  }
+  // said by itself: when a tack starts to cross a boat within 400 m ("Puoi virare: passi davanti a ORMA di una lunghezza"),
+  // and if it stops crossing within 2 minutes of that call ("Non più: virando passi dietro a ORMA")
+  function tackWatch() {
+    var m = M(); if (!cfg.tackCall || !m || !m.tackCross || st.cal) return;
+    var r = m.cdRem(); if (fin(r) && r > 0) return;                  // before the gun the start calls talk
+    var now = Date.now(), tw = st.tw || (st.tw = {}), seen = {};
+    m.tackCross().forEach(function (c) {
+      if (c.dist > 400) return;
+      seen[c.id] = 1;
+      var ahead = c.margin > c.err, o = tw[c.id];
+      if (!o) { tw[c.id] = { ahead: ahead, call: 0, last: 0, t: now }; return; }
+      o.t = now;
+      if (ahead && !o.ahead && now - o.call > 60000 && now - o.last > 20000) { o.call = o.last = now; say("Puoi virare. " + tackText(c) + "."); }
+      else if (o.call && c.margin < -c.err && now - o.call < 120000) { o.call = 0; o.last = now; say("Non più. Virando, " + tackText(c) + "."); }
+      o.ahead = ahead;
+    });
+    Object.keys(tw).forEach(function (k) { if (!seen[k] && now - tw[k].t > 30000) delete tw[k]; });
+  }
+
   // ---------- guided calibration, before the warning signal ----------
   // Beat 30 s, tack, beat 30 s on the other tack (true wind on each tack), bear away to a reach, luff up.
   // The manoeuvres are measured by the page (calib.js); this says what to do and reads the results.
@@ -395,13 +446,14 @@
   }
 
   setInterval(function () { try { shiftWatch(); twdTackWatch(); } catch (e) {} }, 5000);
+  setInterval(function () { try { tackWatch(); } catch (e) {} }, 2000);
   setInterval(function () { try { countdownWatch(); goWatch(); } catch (e) {} }, 250);
 
   // the earphone stem talks only when turned on (it makes MaxRace the "now playing" app)
   function stemOn(on) { var m = M(); if (m && m.native) m.nat({ cmd: "voiceOn", on: !!on }); }
 
   window.MRVoice = {
-    listen: listen, say: say, answer: answer, goWatch: goWatch, goInfo: goInfo, calibrate: calibrate, cfg: cfg, st: st, stemOn: stemOn,
+    listen: listen, say: say, answer: answer, goWatch: goWatch, goInfo: goInfo, tackAsk: tackAsk, tackWatch: tackWatch, calibrate: calibrate, cfg: cfg, st: st, stemOn: stemOn,
     set: function (k, v) { cfg[k] = v; save(k, v); if (k === "stem") stemOn(v); },
     init: function () { if (cfg.stem) stemOn(true); }
   };

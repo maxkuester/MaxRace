@@ -508,7 +508,8 @@
       if (c) {
         var Lm = hold("tack", c.margin, Math.max(3, c.err / 2)), close = Math.abs(Lm) < c.err, Ll = Math.abs(Lm) / bl;
         g.fillStyle = close ? "#f5b400" : Lm > 0 ? "#3ddc84" : "#ff5b5b"; g.font = "700 " + 22 * dpr + "px 'Barlow Condensed',sans-serif";
-        g.fillText(close ? "↻ al pelo" : "↻ " + (Lm > 0 ? "+" : "−") + (Ll < 10 ? (Math.round(Ll * 2) / 2).toString().replace(".", ",") : Math.round(Ll)) + "L", x + w / 2, y + h + 24 * dpr);
+        var inM = window.MRVoice && window.MRVoice.cfg && window.MRVoice.cfg.unit === "m";
+        g.fillText(close ? "↻ al pelo" : "↻ " + (Lm > 0 ? "+" : "−") + (inM ? Math.max(5, Math.round(Math.abs(Lm) / 5) * 5) + " m" : (Ll < 10 ? (Math.round(Ll * 2) / 2).toString().replace(".", ",") : Math.round(Ll)) + "L"), x + w / 2, y + h + 24 * dpr);
       }
       g.shadowBlur = 0;
     });

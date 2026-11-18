@@ -23,7 +23,7 @@
   function save(k, v) { try { localStorage.setItem("mrv." + k, JSON.stringify(v)); } catch (e) {} }
   var M = function () { return window.MRT; };
 
-  var cfg = { stem: load("stem", true), shifts: load("shifts", true), shiftDeg: load("shiftDeg", 5), countdown: load("countdown", true), burn: load("burn", true), goCall: load("goCall", true), tackCall: load("tackCall", true), myVoice: load("myVoice", true), boatLen: load("boatLen", 9.6) };
+  var cfg = { stem: load("stem", true), shifts: load("shifts", true), shiftDeg: load("shiftDeg", 5), countdown: load("countdown", true), burn: load("burn", true), goCall: load("goCall", true), tackCall: load("tackCall", true), myVoice: load("myVoice", true), unit: load("unit", "len"), boatLen: load("boatLen", 9.6) };
   var st = { listening: false, watch: null, lastShift: 0, lastCd: null, onState: null, heard: "" };
 
   // ---------- speaking ----------
@@ -56,7 +56,9 @@
     return (mn === 1 ? "un minuto" : mn + " minuti") + (r ? " e " + r : "");
   }
   function deg(d) { return ("00" + Math.round(wrap360(d))).slice(-3).replace(/^0/, "").replace(/^0/, "") ; }
-  function lengths(m) { var l = Math.abs(m) / cfg.boatLen; return l < 1 ? "meno di una lunghezza" : Math.round(l) === 1 ? "una lunghezza" : Math.round(l) + " lunghezze"; }
+  // margins said in metres (by 5) or in boat lengths, as set in Settings > Voice
+  function marginM(m) { var r = Math.max(5, Math.round(Math.abs(m) / 5) * 5); return r + " metri"; }
+  function lengths(m) { if (cfg.unit === "m") return marginM(m); var l = Math.abs(m) / cfg.boatLen; return l < 1 ? "meno di una lunghezza" : Math.round(l) === 1 ? "una lunghezza" : Math.round(l) + " lunghezze"; }
 
   // ---------- listening ----------
   function listen() {
@@ -307,6 +309,7 @@
 
   // ---------- "se viro?": if we tack now, who do we pass ahead of, and who do we have to duck (page: tackCross) ----------
   function tackLen(c) {
+    if (cfg.unit === "m") return marginM(c.margin);
     var l = Math.abs(c.margin) / cfg.boatLen;
     var h = Math.round(l * 2) / 2, w = Math.floor(h), half = h - w ? " e mezza" : "";
     if (l < 1.25) return "una lunghezza";

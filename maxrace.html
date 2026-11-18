@@ -820,8 +820,9 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
         <label><input type="checkbox" id="vcCount"> Say the start countdown</label>
         <label><input type="checkbox" id="vcBurn"> With the time to burn</label>
         <label><input type="checkbox" id="vcGo"> Call the luff to the line ("bolina tra 10… Bolina, ora!")</label>
-        <label><input type="checkbox" id="vcMine"> Speak with my voice <span id="vcMineSt" style="color:var(--muted)"></span></label>
+        <label><input type="checkbox" id="vcMine"> Speak with the natural voice pack <span id="vcMineSt" style="color:var(--muted)"></span></label>
         <label><input type="checkbox" id="vcTack"> Call when a tack starts to cross a boat ("Puoi virare: passi davanti a…")</label>
+        <label>Margins in <select id="vcUnit"><option value="len">boat lengths</option><option value="m">metres</option></select></label>
         <label>Boat length <input type="number" id="vcLen" step="0.1" style="width:60px"> m</label>
       </div>
       <p>For a natural voice instead of the robotic one, download an Italian Premium or Enhanced voice once: iPhone Settings › Accessibility › Spoken Content › Voices › Italian (for example Federica Premium). MaxRace uses the best one installed by itself. On Android: Settings › Text-to-speech › Google › Install voice data › Italian.</p>
@@ -1676,8 +1677,9 @@ function drawMap(){
   ctx.fillStyle=col("--ink");ctx.beginPath();ctx.moveTo(0,-15*d);ctx.lineTo(7*d,10*d);ctx.lineTo(0,6*d);ctx.lineTo(-7*d,10*d);ctx.closePath();ctx.fill();ctx.restore();
   // if we tack now (tackCross): a line under each boat, + green we pass ahead, − red behind, ≈ too close to call
   var TX=tackCross(),TXm={},bl=boatLenM();TX.forEach(function(c){TXm[c.id]=c;(c.camIds||[]).forEach(function(ci){TXm[ci]=c;});});
-  function txTag(c,x,y,a){if(!c)return;var L=c.margin/bl,close=Math.abs(c.margin)<c.err;
-    ctx.save();if(a)ctx.globalAlpha=a;tag(close?"↻ al pelo":"↻ "+(L>0?"+":"−")+(Math.abs(L)<10?Math.abs(L).toFixed(1).replace(".",","):Math.round(Math.abs(L)))+"L",x,y,close?col("--accent"):L>0?col("--stbd"):col("--port"),13,"left");ctx.restore();}
+  function txTag(c,x,y,a){if(!c)return;var L=c.margin/bl,close=Math.abs(c.margin)<c.err,inM=marginUnit()==="m";
+    var num=inM?Math.max(5,Math.round(Math.abs(c.margin)/5)*5)+" m":(Math.abs(L)<10?Math.abs(L).toFixed(1).replace(".",","):Math.round(Math.abs(L)))+"L";
+    ctx.save();if(a)ctx.globalAlpha=a;tag(close?"↻ al pelo":"↻ "+(L>0?"+":"−")+num,x,y,close?col("--accent"):L>0?col("--stbd"):col("--port"),13,"left");ctx.restore();}
   // AIS targets: who is ahead on the wind axis, and a CPA warning
   var nowA=Date.now(),wv=fin(S.twd)?[Math.sin(S.twd*D2R),Math.cos(S.twd*D2R)]:null,goingUp=!fin(S.twa)||Math.abs(S.twa)<90;
   var me=fin(S.cog)&&fin(S.sog)?[Math.sin(S.cog*D2R)*S.sog,Math.cos(S.cog*D2R)*S.sog]:[0,0];
@@ -2089,6 +2091,7 @@ function fleetBoats(){
       name:tg.name||(/^C\d/.test(id)?"T"+id.slice(1):id),named:!!tg.name,model:"",sail:""});});
   return out;
 }
+function marginUnit(){return (window.MRVoice&&window.MRVoice.cfg&&window.MRVoice.cfg.unit)||"len";}
 function boatLenM(){var v=window.MRVoice&&window.MRVoice.cfg&&window.MRVoice.cfg.boatLen;return v>2?v:9.6;}
 function tackCross(){
   var out=[];if(!fin(S.lat)||!fin(S.twa)||!fin(S.tws)||Math.abs(S.twa)>=90)return out;
@@ -4175,13 +4178,14 @@ function helmSet(on){helm.on=on;helm.to=null;helm.rud=0;helm.hold=NaN;var b=docu
 (function(){
   var V=window.MRVoice;if(!V)return;
   var el=function(id){return document.getElementById(id);};
-  el("vcStem").checked=V.cfg.stem;el("vcShifts").checked=V.cfg.shifts;el("vcShiftDeg").value=V.cfg.shiftDeg;el("vcCount").checked=V.cfg.countdown;el("vcBurn").checked=V.cfg.burn;el("vcGo").checked=V.cfg.goCall;el("vcTack").checked=V.cfg.tackCall;el("vcMine").checked=V.cfg.myVoice;el("vcLen").value=V.cfg.boatLen;
+  el("vcStem").checked=V.cfg.stem;el("vcShifts").checked=V.cfg.shifts;el("vcShiftDeg").value=V.cfg.shiftDeg;el("vcCount").checked=V.cfg.countdown;el("vcBurn").checked=V.cfg.burn;el("vcGo").checked=V.cfg.goCall;el("vcTack").checked=V.cfg.tackCall;el("vcMine").checked=V.cfg.myVoice;el("vcUnit").value=V.cfg.unit||"len";el("vcLen").value=V.cfg.boatLen;
   el("vcStem").onchange=function(){V.set("stem",this.checked);};
   el("vcShifts").onchange=function(){V.set("shifts",this.checked);};
   el("vcShiftDeg").onchange=function(){var x=+this.value;if(x>=2&&x<=20)V.set("shiftDeg",x);};
   el("vcCount").onchange=function(){V.set("countdown",this.checked);};
   el("vcBurn").onchange=function(){V.set("burn",this.checked);};
   el("vcGo").onchange=function(){V.set("goCall",this.checked);};el("vcTack").onchange=function(){V.set("tackCall",this.checked);};el("vcMine").onchange=function(){V.set("myVoice",this.checked);};
+  el("vcUnit").onchange=function(){V.set("unit",this.value);if(view==="map"||view==="both")drawMap();};
   var packSt=function(j){el("vcMineSt").textContent=j?"("+Object.keys(j.files||{}).length+" pieces"+(j.made?", made "+j.made:"")+")":"(no voice pack in this app: make it on the Mac with scripts/voicepack-gen.py)";};
   V.st.onPack=packSt;
   el("vcLen").onchange=function(){var x=+this.value;if(x>2&&x<60)V.set("boatLen",x);};

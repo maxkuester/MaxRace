@@ -132,6 +132,7 @@ function startServer(opts) {
     if (p === "/llm.js") return sendFile(res, path.join(o.root, "llm.js"));
     if (p === "/grib.js") return sendFile(res, path.join(o.root, "grib.js"));
     if (p === "/routing.js") return sendFile(res, path.join(o.root, "routing.js"));
+    if (p === "/docfinder.js") return sendFile(res, path.join(o.root, "docfinder.js"));
     if (p === "/calib.js") return sendFile(res, path.join(o.root, "calib.js"));
     // the tactician's own voice (scripts/voicepack-gen.py): the player and its clips, when they are on this computer
     if (p === "/voicepack.js") return sendFile(res, path.join(o.root, "voicepack.js"));

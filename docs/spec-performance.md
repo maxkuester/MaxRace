@@ -78,7 +78,7 @@ the hard-coded commands. Push-to-talk, short spoken answers, low latency, proact
 
 ## 8. Pre-race research
 
-- [ ] Web search and document download (NoR, SI, amendments) — not done: the user opens the PDF or pastes the text
+- [~] Web search and document download (NoR, SI, amendments) — docfinder.js: Race documents > Find documents online asks the model (Anthropic web search + web fetch tools, run server-side, so no browser CORS problem) to find and fetch the documents of a named event; MaxRace then reads the fetched documents' own text (PDF or text) with racedocs.js, so what is shown comes from the documents, not from the model. Tested only against a mocked API (scripts/test-docfinder.js) and in the page with the mock; never against the real API or a real event; needs the API key; the tool-version choice (basic first, newer on refusal) is untested
 - [~] PDF parsing of NoR and SI — racedocs.js `extract()` on the text from the app's own PDF reader (Italian/English: positions, warning signal and start times, VHF, protest and race time limits, course types); tested on a synthetic PDF and text, not on a real NoR/SI; scanned PDFs cannot be read; no rounding sides, courses or amendments logic
 - [x] Mark import from GPX/KML/coordinates — marksimport.js `parse()` + file picker in Course and marks (GPX wpt/rtept, KML Point/LineString); start line by coordinates and manual marks as before; untested on a real committee file
 - [~] Entry list — pasted or CSV, matched to AIS and camera targets

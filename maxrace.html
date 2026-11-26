@@ -792,6 +792,8 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
     <div>
       <h3>Race documents (Notice of Race, Sailing Instructions, amendments)</h3>
       <p>Open a PDF or text file, or paste the text. MaxRace lists the positions, start times, VHF channel, time limits and course types it finds, with the line they come from. Nothing is used until you tick it and confirm. Every document read is kept on this device, so it is there at sea without a signal. Scanned PDFs (pictures of pages) cannot be read.</p>
+      <div class="row"><input type="text" id="rdEvent" placeholder="Event name, e.g. Trofeo … Varazze 2026" style="flex:1;min-width:200px"><button class="btn primary" id="rdFind">Find documents online</button></div>
+      <p style="font-size:12px;opacity:.75;margin-top:2px">Needs the assistant's API key (Settings > Voice). The event name goes to Anthropic, which searches the web and reads the documents; MaxRace then reads the documents' own text (not the model's summary) and lists what it finds for you to confirm.</p>
       <div class="row"><input type="file" id="rdFile" accept=".pdf,.txt,.md,text/plain,application/pdf" multiple></div>
       <textarea id="rdPaste" spellcheck="false" placeholder="…or paste the text here"></textarea>
       <div class="row" style="margin-top:6px"><button class="btn" id="rdRead">Read pasted text</button><label><input type="checkbox" id="rdSeq" checked> add ticked marks to the sequence</label></div>
@@ -2630,15 +2632,15 @@ function rdShow(doc){
   });
   $("rdList").innerHTML=h||"<p>Nothing recognised in this document.</p>";$("rdActs").hidden=!doc.items.some(function(x){return x.kind==="mark";});
 }
-function rdKeep(name,items,lines){
-  var doc={name:name,t:Date.now(),items:items,excerpt:lines.join("\n").slice(0,20000)};
+function rdKeep(name,items,lines,url){
+  var doc={name:name,t:Date.now(),items:items,excerpt:lines.join("\n").slice(0,20000),url:url||""};
   rdDocs=rdDocs.filter(function(d){return d.name!==name;});rdDocs.unshift(doc);rdDocs=rdDocs.slice(0,6);rdSave();rdCache();rdShow(doc);
   var n=items.filter(function(x){return x.kind==="mark";}).length;
   rdMsg(name+": "+items.length+" item"+(items.length===1?"":"s")+" found"+(n?", "+n+" position"+(n===1?"":"s"):"")+". Check them against the document before using them.",items.length?"ok":"err");
 }
 function rdCache(){
   var el=$("rdCache");if(!rdDocs.length){el.innerHTML="";return;}
-  el.innerHTML="<h4 style='margin:10px 0 2px'>Kept on this device</h4>"+rdDocs.map(function(d,i){return "<div class='row' style='font-size:13px'><span>"+esc(d.name)+" · "+new Date(d.t).toLocaleDateString()+" · "+d.items.length+" items</span><button class='btn' data-open='"+i+"'>Open</button><button class='btn' data-del='"+i+"'>Delete</button></div>";}).join("");
+  el.innerHTML="<h4 style='margin:10px 0 2px'>Kept on this device</h4>"+rdDocs.map(function(d,i){return "<div class='row' style='font-size:13px'><span>"+esc(d.name)+" · "+new Date(d.t).toLocaleDateString()+" · "+d.items.length+" items"+(d.url?" · <span style='opacity:.6'>"+esc(d.url)+"</span>":"")+"</span><button class='btn' data-open='"+i+"'>Open</button><button class='btn' data-del='"+i+"'>Delete</button></div>";}).join("");
 }
 function rdLines(f){
   if(/\.pdf$/i.test(f.name)||f.type==="application/pdf")return f.arrayBuffer().then(function(b){return pdfLines(new Uint8Array(b),inflateWeb);}).then(function(ls){return ls.map(function(x){return typeof x==="string"?x:x.text;});});   // pdfLines gives {page,y,text}
@@ -2649,6 +2651,22 @@ $("rdFile").onchange=function(e){
   rdMsg("Reading…");
   fs.reduce(function(p,f){return p.then(function(){return rdLines(f).then(function(ls){ls=Array.prototype.slice.call(ls);
     if(ls.join("").trim().length<20)throw new Error("no text (a scanned PDF?)");rdKeep(f.name,MRRaceDocs.extract(ls).items,ls);});}).catch(function(er){rdMsg("Could not read "+f.name+": "+er.message,"err");});},Promise.resolve());
+};
+$("rdFind").onclick=function(){
+  var ev=$("rdEvent").value.trim(),V=window.MRVoice;
+  if(!ev){rdMsg("Type the event name first.","err");return;}
+  if(!window.MRDocFinder||!V||!V.llmHasKey()){rdMsg("Add the assistant's API key in Settings > Voice first (Race assistant).","err");return;}
+  $("rdFind").disabled=true;rdMsg("Searching the web and reading the documents… this can take a minute or two.");
+  MRDocFinder.find({event:ev},{key:V.llmGetKey(),model:V.cfg.llmModel||undefined}).then(function(r){
+    var kinds={nor:"NoR",si:"SI",amendment:"Amendment",other:"Document"},n=0;
+    return r.documents.reduce(function(p,d){return p.then(function(){
+      var lines=d.pdf?(function(){var b=atob(d.pdf),u=new Uint8Array(b.length);for(var i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return pdfLines(u,inflateWeb).then(function(ls){return ls.map(function(x){return typeof x==="string"?x:x.text;});});})():Promise.resolve(String(d.text||"").split(/\r?\n/));
+      return lines.then(function(ls){if(ls.join("").trim().length<20)return;n++;rdKeep((kinds[d.kind]||"Document")+" · "+(d.title||d.url),MRRaceDocs.extract(ls).items,ls,d.url);});
+    }).catch(function(){});},Promise.resolve()).then(function(){
+      rdMsg(n?n+" document"+(n===1?"":"s")+" found and read for \""+ev+"\" ("+r.documents.map(function(d){return d.url;}).join(", ")+")."+(r.notes?" "+r.notes:"")+" Check the items against the source before using them.":"The documents found had no readable text.",n?"ok":"err");
+    });
+  }).catch(function(e){rdMsg(e.code==="none"?"Nothing found online for \""+ev+"\": "+e.message+". Open the document yourself with the file button.":e.code==="auth"?"The API key was not accepted.":e.code==="network"?"No connection.":"Could not search: "+e.message,"err");})
+   .then(function(){$("rdFind").disabled=false;});
 };
 $("rdRead").onclick=function(){
   var t=$("rdPaste").value;if(!t.trim()||!window.MRRaceDocs){rdMsg("Paste some text first.","err");return;}
@@ -4494,6 +4512,7 @@ function helmSet(on){helm.on=on;helm.to=null;helm.rud=0;helm.hold=NaN;var b=docu
 <script src="routing.js"></script>
 <script src="marksimport.js"></script>
 <script src="racedocs.js"></script>
+<script src="docfinder.js"></script>
 <script src="target-tack.js"></script>
 <script src="targets.js"></script>
 <script src="voicepack.js"></script>

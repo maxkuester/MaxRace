@@ -593,7 +593,7 @@
   function stemOn(on) { var m = M(); if (m && m.native) m.nat({ cmd: "voiceOn", on: !!on }); }
 
   window.MRVoice = {
-    listen: listen, say: say, answer: answer, goWatch: goWatch, goInfo: goInfo, tackAsk: tackAsk, tackWatch: tackWatch, calibrate: calibrate, cfg: cfg, st: st, stemOn: stemOn, llmSetKey: llmSetKey, llmHasKey: function () { return !!llmKey(); }, latency: latency,
+    listen: listen, say: say, answer: answer, goWatch: goWatch, goInfo: goInfo, tackAsk: tackAsk, tackWatch: tackWatch, calibrate: calibrate, cfg: cfg, st: st, stemOn: stemOn, llmSetKey: llmSetKey, llmHasKey: function () { return !!llmKey(); }, llmGetKey: llmKey, latency: latency,
     set: function (k, v) { cfg[k] = v; save(k, v); if (k === "stem") stemOn(v); },
     init: function () { if (cfg.stem) stemOn(true); if (window.MRVoicePack) window.MRVoicePack.load("voicepack/").then(function (j) { if (st.onPack) st.onPack(j); }).catch(function () { if (st.onPack) st.onPack(null); }); }
   };

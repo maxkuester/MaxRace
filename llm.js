@@ -54,21 +54,24 @@
     var o = {}; Object.keys(v).forEach(function (k) { var c = clean(v[k], depth + 1); if (c !== undefined) o[k] = c; }); return o;
   }
 
+  // one Messages API call with the typed errors (shared by the assistant and the document finder)
+  function postJson(f, body, key) {
+    var headers = { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" };
+    if (body.fallbacks) headers["anthropic-beta"] = "server-side-fallback-2026-07-01";
+    return f(URL_, { method: "POST", headers: headers, body: JSON.stringify(body) }).catch(function (e) { throw err("network", "network: " + (e && e.message)); }).then(function (r) {
+      if (r.ok) return r.json();
+      return r.text().then(function (t) {
+        var code = r.status === 401 || r.status === 403 ? "auth" : r.status === 429 ? "rate" : r.status >= 500 ? "server" : "request";
+        throw err(code, "HTTP " + r.status + ": " + t.slice(0, 300), { status: r.status });
+      });
+    });
+  }
+
   // create({fetch, getKey, getModel, tools, maxRounds, system})
   function create(opts) {
     var f = opts.fetch || (typeof fetch !== "undefined" ? fetch.bind(root) : null), tools = opts.tools || {}, names = Object.keys(tools), memory = [];
     var toolDefs = names.map(function (n) { return { name: n, description: tools[n].description, input_schema: tools[n].input_schema || { type: "object", properties: {}, additionalProperties: false } }; });
-    function post(body, key) {
-      var headers = { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" };
-      if (body.fallbacks) headers["anthropic-beta"] = "server-side-fallback-2026-07-01";
-      return f(URL_, { method: "POST", headers: headers, body: JSON.stringify(body) }).catch(function (e) { throw err("network", "network: " + (e && e.message)); }).then(function (r) {
-        if (r.ok) return r.json();
-        return r.text().then(function (t) {
-          var code = r.status === 401 || r.status === 403 ? "auth" : r.status === 429 ? "rate" : r.status >= 500 ? "server" : "request";
-          throw err(code, "HTTP " + r.status + ": " + t.slice(0, 200), { status: r.status });
-        });
-      });
-    }
+    function post(body, key) { return postJson(f, body, key); }
     function ask(question) {
       var key = opts.getKey && opts.getKey();
       if (!key) return Promise.reject(err("nokey", "no API key"));
@@ -110,6 +113,6 @@
     }
     return { ask: ask, forget: function () { memory = []; }, tools: names };
   }
-  var api = { create: create, unverified: unverified, numbers: numbers, clean: clean, SYSTEM: SYSTEM, DEFAULT_MODEL: DEFAULT_MODEL };
+  var api = { create: create, post: postJson, unverified: unverified, numbers: numbers, clean: clean, SYSTEM: SYSTEM, DEFAULT_MODEL: DEFAULT_MODEL };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.MRLLM = api;
 })(this);

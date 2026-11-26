@@ -24,7 +24,7 @@ within limits, no tack or gybe in the window, BSP not accelerating significantly
 - [~] Steady-state detector — calib.js: manoeuvre detection and steady beats (≥ 30 s, TWA 25–60°); not for all points of sail
 - [x] Thresholds configurable, not hard-coded — `DEFAULTS` + options in polarlearn.js `steady()`
 - [~] Manoeuvre periods excluded from polar learning — no polar learning yet
-- [~] Outliers (sensor spikes, bad wind data) rejected — polarlearn.js `plausible()` (ranges, speed vs reference polar); not wired to live data
+- [x] Outliers (sensor spikes, bad wind data) rejected — polarlearn.js `plausible()` (ranges, speed vs reference polar), used on live data and CSV
 
 ## 3. Learned polars
 
@@ -32,7 +32,7 @@ Polar table: target BSP by TWS and TWA. Bins of 2 kn TWS and 5° TWA; per bin a 
 target plus the sample count; low-confidence bins fall back to the reference polar; optimum upwind and downwind VMG angles
 per TWS; updated after each session, keeping history.
 
-- [~] Polar table structure (TWS × TWA) learned from data — polarlearn.js `learn()`/`table()`/`vmgAngles()`, CLI scripts/polar-learn.js; not yet fed from the app's saved races, no UI
+- [x] Polar table structure (TWS × TWA) learned from data — polarlearn.js, fed live from calLearn() in maxrace.html (real sources only) and from a race CSV; per boat in localStorage; "Use learned polar" / "Restore previous polar" in Settings. Live path not yet run on a real boat
 - [x] Percentile-based targets — `table()`, 90th percentile by default, fallback to the reference polar
 - [x] Sample count and confidence per bin — `n`, `conf`, `source` in `table()`
 - [x] Reference polar — ORC certificate PDF, Expedition file or table import
@@ -62,7 +62,7 @@ BSP), recovery time to ~95% of target, distance lost vs sailing on (metres). Sto
 
 - [~] Session replay mode — the app's race log replays through the live parsing
 - [ ] Prediction error report per wind band
-- [~] Coverage view (TWS/TWA bins with data) — data from polarlearn.js `coverage()`; no screen yet
+- [x] Coverage view (TWS/TWA bins with data) — Settings > Learned polar, table of samples per bin (plRender() in maxrace.html)
 
 ## 7. Conversational race assistant
 
@@ -113,8 +113,8 @@ starboard factors), compass offset (HDG vs COG in slack water), TWD stability th
 flag uncalibrated data, drift detection. Experiment: wind shear estimated from tack-to-tack asymmetry, validated on logs.
 
 - [~] Guided trials workflow — voice-guided routine for turn rate, tack and luff loss, TWD by tack (calib.js, voice.js)
-- [~] BSP and compass calibration calculations — speedcal.js (reciprocal runs: BSP factor, HDG-vs-COG offset, current along track), CLI scripts/speedcal-log.js; synthetic test only, not in the app, no port/starboard split, nothing applied to the data
-- [~] Accept/reject and apply corrections — "Apply" for manoeuvre values only
+- [x] BSP and compass calibration calculations — speedcal.js, live runs kept in calib.runs, Settings > Speed and compass; synthetic test and CSV check only; no port/starboard split
+- [x] Accept/reject and apply corrections — manoeuvre values (Apply) and BSP factor / heading offset (Apply correction, refused unless usable; corr applied in cB()/cH() where NMEA and Signal K values come in, per boat profile)
 - [ ] Calibration history and data flagging
 - [~] Drift detection — TWD-by-tack warning during the race
 - [ ] Shear estimator tested on historical logs

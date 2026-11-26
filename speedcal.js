@@ -60,8 +60,10 @@
     return out;
   }
 
-  function analyse(samples, options) {
-    var o = opt(options), rs = runs(samples, options), ps = pairs(rs, options).filter(function (p) { return p.factor >= o.factorMin && p.factor <= o.factorMax; });
+  function analyse(samples, options) { return summarise(runs(samples, options), options); }
+  // from runs already measured (the app keeps them)
+  function summarise(rs, options) {
+    var o = opt(options), ps = pairs(rs, options).filter(function (p) { return p.factor >= o.factorMin && p.factor <= o.factorMax; });
     var f = ps.map(function (p) { return p.factor; }), off = ps.map(function (p) { return p.offset; });
     var med = median(f), spread = f.length > 1 ? Math.max.apply(null, f) - Math.min.apply(null, f) : NaN;
     var r1 = function (v, d) { var k = Math.pow(10, d); return fin(v) ? Math.round(v * k) / k : NaN; };
@@ -69,6 +71,6 @@
       ok: ps.length >= o.minPairs && spread <= o.maxSpread } };
   }
 
-  var api = { DEFAULTS: DEFAULTS, runs: runs, pairs: pairs, analyse: analyse };
+  var api = { DEFAULTS: DEFAULTS, runs: runs, pairs: pairs, analyse: analyse, summarise: summarise };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.MRSpeedCal = api;
 })(this);

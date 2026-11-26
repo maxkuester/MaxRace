@@ -35,6 +35,8 @@
       "voice.js",
       "calib.js",
       "marksimport.js",
+      "polarlearn.js",
+      "speedcal.js",
       "voicepack.js",
       "voicepack/**/*",
       "scripts/target-tack.js",

@@ -896,6 +896,21 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
     </div>
 
     <div>
+      <h3>Speed and compass</h3>
+      <p>Sail a steady stretch (at least 40 s, same heading), then the opposite course, once or twice. MaxRace pairs the reciprocal runs: the current cancels out in the pair, so it can tell if the log reads high or low and how far the compass is from the track. Apply only when it says usable (two pairs or more, little spread). Corrections are kept with the boat and applied to boat speed and heading as they come in.</p>
+      <div class="msg" id="spOut">Nothing measured yet.</div>
+      <div class="row"><button class="btn" id="spApply">Apply correction</button><button class="btn" id="spReset">Reset to 1.000 / 0°</button></div>
+    </div>
+
+    <div>
+      <h3>Learned polar</h3>
+      <p>Steady sailing (no tack, no turn, wind and speed settled) is sorted in bins of 2 kn of wind and 5° of angle; each bin's target is its 90th percentile once it has 20 samples, otherwise the reference polar stays. Real sailing only: nothing is learned from the simulator or the phone GPS. The table below shows how many samples each bin has.</p>
+      <div class="msg" id="plOut">Nothing learned yet.</div>
+      <div id="plGrid" style="overflow-x:auto;margin:6px 0"></div>
+      <div class="row"><button class="btn" id="plUse">Use learned polar</button><button class="btn" id="plUndo">Restore previous polar</button><button class="btn" id="plClear">Forget learned data</button></div>
+    </div>
+
+    <div>
       <h3>Calibration</h3>
       <p>While you sail with the instruments MaxRace measures every tack, luff and gybe (turn rate, seconds lost, time back to target speed), your close-hauled speed against the polar, and the true wind on each tack. Apply puts the measured values in the manoeuvres above. The guided calibration takes 5 minutes before the warning signal and talks you through it.</p>
       <div class="msg" id="calOut">Nothing measured yet.</div>
@@ -968,7 +983,7 @@ function wrap180(a){a=wrap360(a);return a>180?a-360:a;}
 function $(id){return document.getElementById(id);}
 var SP="maxrace:",OLD=["racedash:","c7dash:"];
 var sync={ver:0,timer:null,applying:false,del:{},t:{}};
-var PK={polar:1,manv:1,bow:1,nmea:1,skurl:1,src:1,boat:1,calib:1};
+var PK={polar:1,manv:1,bow:1,nmea:1,skurl:1,src:1,boat:1,calib:1,corr:1};
 function save(k,v){try{localStorage.setItem(SP+k,JSON.stringify(v));}catch(e){}if(PK[k])profHook(k,v);if(k==="course"||k==="line")syncLocal(k);}
 function load(k,d){try{var v=localStorage.getItem(SP+k);for(var i=0;v==null&&i<OLD.length;i++){v=localStorage.getItem(OLD[i]+k);if(v!=null)localStorage.setItem(SP+k,v);}return v==null?d:JSON.parse(v);}catch(e){return d;}}
 function forget(k){try{localStorage.removeItem(SP+k);OLD.forEach(function(p){localStorage.removeItem(p+k);});}catch(e){}if(PK[k])profHook(k,undefined);}
@@ -1077,6 +1092,10 @@ function setPolar(p){P=normPolar(p);tgtCache={};$("polarText").textContent=p.nam
 
 /* ---------- data ---------- */
 var raw={}, S={}, damp=load("damp",0.35);
+// calibration corrections (Settings > Speed and compass): BSP factor and heading offset, applied where the instrument values come in
+var corr=load("corr",null)||{k:1,off:0};
+function cB(v){return corr.k&&corr.k!==1?v*corr.k:v;}
+function cH(v){return corr.off?wrap360(v+corr.off):v;}
 var source="sim", ws=null;
 
 /* simulator */
@@ -1211,14 +1230,14 @@ function trueFromApp(aws,awa,bsp){
 
 /* Signal K */
 var SKMAP={
-  "navigation.speedThroughWater":function(v){raw.bsp=v*KN;},
+  "navigation.speedThroughWater":function(v){raw.bsp=cB(v*KN);},
   "environment.wind.speedTrue":function(v){raw.tws=v*KN;raw._t=1;},
   "environment.wind.angleTrueWater":function(v){raw.twa=wrap180(v*R2D);raw._t=1;},
   "environment.wind.directionTrue":function(v){raw.twd=wrap360(v*R2D);raw._d=1;},
   "environment.wind.speedApparent":function(v){raw.aws=v*KN;},
   "environment.wind.angleApparent":function(v){raw.awa=wrap180(v*R2D);},
-  "navigation.headingTrue":function(v){raw.hdg=wrap360(v*R2D);raw._h=1;},
-  "navigation.headingMagnetic":function(v){if(!raw._h)raw.hdg=wrap360(v*R2D);},
+  "navigation.headingTrue":function(v){raw.hdg=cH(wrap360(v*R2D));raw._h=1;},
+  "navigation.headingMagnetic":function(v){if(!raw._h)raw.hdg=cH(wrap360(v*R2D));},
   "navigation.speedOverGround":function(v){raw.sog=v*KN;},
   "navigation.courseOverGroundTrue":function(v){raw.cog=wrap360(v*R2D);},
   "navigation.attitude":function(v){if(v&&fin(v.roll))raw.heel=v.roll*R2D;},
@@ -2215,10 +2234,10 @@ function parseNMEA(line){
     case "MWV":{var a=nmNum(f[1]),sp=kn(nmNum(f[3]),f[4]);if(f[5]!=="A")break;
       if(f[2]==="R"){raw.awa=wrap180(a);raw.aws=sp;}else if(f[2]==="T"){raw.twa=wrap180(a);raw.tws=sp;raw._t=1;}break;}
     case "MWD":{var d=nmNum(f[1]);if(fin(d)){raw.twd=wrap360(d);raw._d=1;}var w=nmNum(f[5]);if(fin(w))raw.tws=w;break;}
-    case "VHW":{var b=nmNum(f[5]);if(fin(b))raw.bsp=b;var ht=nmNum(f[1]);if(fin(ht)&&!raw._h){raw.hdg=ht;}break;}
-    case "HDT":{var h=nmNum(f[1]);if(fin(h)){raw.hdg=h;raw._h=1;}break;}
-    case "HDG":{var hm=nmNum(f[1]),vr=nmNum(f[4]);if(fin(hm)&&!raw._h){raw.hdg=wrap360(hm+(fin(vr)?(f[5]==="W"?-vr:vr):0));}break;}
-    case "HDM":{var h2=nmNum(f[1]);if(fin(h2)&&!raw._h)raw.hdg=h2;break;}
+    case "VHW":{var b=nmNum(f[5]);if(fin(b))raw.bsp=cB(b);var ht=nmNum(f[1]);if(fin(ht)&&!raw._h){raw.hdg=cH(ht);}break;}
+    case "HDT":{var h=nmNum(f[1]);if(fin(h)){raw.hdg=cH(h);raw._h=1;}break;}
+    case "HDG":{var hm=nmNum(f[1]),vr=nmNum(f[4]);if(fin(hm)&&!raw._h){raw.hdg=cH(wrap360(hm+(fin(vr)?(f[5]==="W"?-vr:vr):0)));}break;}
+    case "HDM":{var h2=nmNum(f[1]);if(fin(h2)&&!raw._h)raw.hdg=cH(h2);break;}
     case "VTG":{var c=nmNum(f[1]),so=nmNum(f[5]);if(fin(c))raw.cog=c;if(fin(so))raw.sog=so;break;}
     case "RMC":{if(f[2]!=="A")break;var la=nmLat(nmNum(f[3]),f[4]),lo=nmLat(nmNum(f[5]),f[6]);if(fin(la)){raw.lat=la;raw.lon=lo;}
       var s2=nmNum(f[7]),c2=nmNum(f[8]);if(fin(s2))raw.sog=s2;if(fin(c2))raw.cog=c2;break;}
@@ -3848,7 +3867,7 @@ setPolar(P);
 
 /* ---------- boat profiles ---------- */
 var profiles=null,activeId=null,applying=false;
-var PKEYS=["polar","manv","bow","nmea","skurl","src","boat","calib"];
+var PKEYS=["polar","manv","bow","nmea","skurl","src","boat","calib","corr"];
 function newId(){return "b"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
 function saveProfiles(){try{localStorage.setItem(SP+"profiles",JSON.stringify(profiles));localStorage.setItem(SP+"profile",JSON.stringify(activeId));}catch(e){}syncPush();}
 function activeProf(){if(!profiles)return null;for(var i=0;i<profiles.length;i++)if(profiles[i].id===activeId)return profiles[i];return null;}
@@ -3893,7 +3912,7 @@ function applyProfile(id,quiet){
   applying=false;
   setPolar(d.polar||makeDemo());
   manv=d.manv?JSON.parse(JSON.stringify(d.manv)):{rate:8,tack:6,luff:2};
-  calib=d.calib?JSON.parse(JSON.stringify(d.calib)):{mans:[],beats:[]};calSeen={};renderCalib();
+  calib=d.calib?JSON.parse(JSON.stringify(d.calib)):{mans:[],beats:[]};calSeen={};corr=d.corr?JSON.parse(JSON.stringify(d.corr)):{k:1,off:0};plState=null;renderCalib();
   bowOff=d.bow||0;boatName=d.boat||p.name;
   var nm=d.nmea||{};$("nmProto").value=nm.proto||"tcp";$("nmHost").value=nm.host||"";$("nmPort").value=nm.port||"";$("skUrl").value=d.skurl||"";
   $("mRate").value=manv.rate;$("mTack").value=manv.tack;$("mLuff").value=manv.luff;$("bowIn").value=bowOff;$("boatIn").value=boatName;
@@ -4106,7 +4125,9 @@ function calStore(){return source==="sim"?calSim:calib;}
 function calPolar(){return {bsp:polarBsp,up:function(tws){var T=targets(tws);return {twa:T.up.twa,bsp:T.up.bsp};}};}
 function calPush(now){
   var h=fin(raw.hdg)?raw.hdg:S.hdg,b=fin(raw.bsp)?raw.bsp:S.bsp;if(!fin(h)||!fin(b))return;
-  calBuf.push({t:now/1000,hdg:h,bsp:b,twa:fin(raw.twa)?raw.twa:S.twa,twd:S.twd,tws:S.tws});
+  // the buffer holds the instrument values as they come (the correction taken out), so a measured factor never chases itself
+  var sg=fin(raw.sog)?raw.sog:S.sog,cg=fin(raw.cog)?raw.cog:S.cog;
+  calBuf.push({t:now/1000,hdg:wrap360(h-(corr.off||0)),bsp:b/(corr.k||1),bspc:b,hc:h,sog:sg,cog:cg,twa:fin(raw.twa)?raw.twa:S.twa,twd:S.twd,tws:S.tws});
   while(calBuf.length&&now/1000-calBuf[0].t>600)calBuf.shift();
 }
 function calLearn(){
@@ -4124,10 +4145,76 @@ function calLearn(){
     if(c.beats.some(function(x){return Math.abs(x.t-b.t)<20;}))return;
     c.beats.push(b);add++;
   });
+  if(window.MRSpeedCal&&source!=="sim"&&!(source==="gps")){
+    MRSpeedCal.runs(calBuf).forEach(function(r){
+      if(r.t+r.dur>now-5||r.t<b0+5)return;
+      if((c.runs=c.runs||[]).some(function(x){return Math.abs(x.t-r.t)<10;}))return;
+      c.runs.push(r);add++;
+    });
+    c.runs=(c.runs||[]).slice(-40);
+  }
+  if(window.MRPolar&&source!=="sim"&&source!=="gps"){
+    var st=plStore(),last=st.last||0,pts=calBuf.map(function(p){return {t:p.t,hdg:p.hdg,bsp:p.bspc,twa:p.twa,twd:p.twd,tws:p.tws};}),res2=MRPolar.steady(pts,PL_OPT,polarBsp);
+    var fresh=res2.points.filter(function(p){return p.t>last&&p.t<now-12;});
+    if(fresh.length){MRPolar.add(st.s,fresh,PL_OPT);st.last=fresh[fresh.length-1].t;plSave();plRender();}
+  }
   if(add){c.mans=c.mans.slice(-60);c.beats=c.beats.slice(-40);if(c===calib)save("calib",calib);renderCalib();}
 }
+
+/* ---------- speed and compass correction (speedcal.js), learned polar (polarlearn.js) ---------- */
+var PL_OPT={maxPerBin:150},plState=null;
+function plKey(){return "plearn_"+(activeId||"default");}
+function plStore(){if(!plState)plState=load(plKey(),null)||{s:MRPolar.emptyState(),last:0};return plState;}
+function plSave(){try{localStorage.setItem(SP+plKey(),JSON.stringify(plState));}catch(e){}}
+function speedSummary(){var c=calStore();return window.MRSpeedCal?MRSpeedCal.summarise(c.runs||[]):{summary:{n:0},pairs:[],runs:[]};}
+function renderSpeed(){
+  var o=$("spOut");if(!o)return;var r=speedSummary(),m=r.summary,c=calStore(),f=function(v,d){return fin(v)?(+v).toFixed(d):"–";};
+  var cur="Now applied: BSP × <b>"+f(corr.k||1,3)+"</b>, heading <b>"+((corr.off||0)>0?"+":"")+f(corr.off||0,1)+"°</b>.";
+  if(!m.n){o.innerHTML=(source==="sim"?"Not measured in the simulator. ":"No reciprocal pairs yet ("+((c.runs||[]).length)+" steady runs seen). ")+cur;o.className="msg";return;}
+  o.innerHTML="Measured: BSP factor <b>"+f(m.factor,3)+"</b>, heading offset (COG − HDG) <b>"+(m.offset>0?"+":"")+f(m.offset,1)+"°</b>, from "+m.n+" pair"+(m.n===1?"":"s")+", spread "+f(m.spread,3)+", current along track "+f(m.current,2)+" kn. "+
+    (m.ok?"<b>Usable.</b>":"<b>Not enough or too scattered: do not apply yet.</b>")+"<br>"+cur;
+  o.className="msg"+(m.ok?" ok":"");
+}
+function plTable(){return MRPolar.table(plStore().s,PL_OPT,polarBsp);}
+function plRender(){
+  var o=$("plOut"),g=$("plGrid");if(!o||!window.MRPolar)return;
+  var st=plStore().s,cov=MRPolar.coverage(st,PL_OPT);
+  if(!cov.binsTotal){o.textContent="Nothing learned yet: sail steady with the real instruments, or load a race CSV below.";g.innerHTML="";return;}
+  var tab=plTable(),ang=MRPolar.vmgAngles(tab).filter(function(v){return v.up&&v.up.source==="learned";}).slice(-5);
+  o.innerHTML="<b>"+cov.binsOk+"</b> of "+cov.binsTotal+" bins have "+cov.minN+" samples or more."+(ang.length?"<br>"+ang.map(function(v){var t=targets(v.tws).up;return "TWS "+v.tws+" kn: upwind learned "+v.up.twa.toFixed(1)+"° / "+v.up.bsp.toFixed(1)+" kn, reference "+t.twa.toFixed(0)+"° / "+t.bsp.toFixed(1)+" kn";}).join("<br>"):"");
+  var ts=[],as=[];cov.cells.forEach(function(c){if(ts.indexOf(c.tws)<0)ts.push(c.tws);if(as.indexOf(c.twa)<0)as.push(c.twa);});
+  ts.sort(function(a,b){return a-b;});as.sort(function(a,b){return a-b;});
+  var by={};cov.cells.forEach(function(c){by[c.tws+","+c.twa]=c;});
+  var h="<table style='border-collapse:collapse;font-size:11px'><tr><th>TWS \\ TWA</th>"+as.map(function(a){return "<th style='padding:1px 3px'>"+a+"</th>";}).join("")+"</tr>";
+  ts.forEach(function(w){h+="<tr><th style='padding:1px 4px'>"+w+"–"+(w+cov.twsStep)+"</th>"+as.map(function(a){var c=by[w+","+a];
+    return "<td style='padding:1px 3px;text-align:center;background:"+(c?"rgba(46,160,67,"+(0.15+0.6*Math.min(1,c.n/cov.minN)).toFixed(2)+")":"transparent")+"'>"+(c?c.n:"")+"</td>";}).join("")+"</tr>";});
+  g.innerHTML=h+"</table>";
+}
+function plPolar(){
+  var tab=plTable(),rows={};tab.forEach(function(r){if(fin(r.bsp))(rows[r.tws]=rows[r.tws]||[]).push(r);});
+  var tws=Object.keys(rows).map(Number).sort(function(a,b){return a-b;}).filter(function(w){return rows[w].some(function(r){return r.source==="learned";})&&rows[w].length>=5;});
+  if(tws.length<3)return null;
+  return {name:"Learned "+new Date().toISOString().slice(0,10),tws:tws,cols:tws.map(function(w){var c=rows[w].sort(function(a,b){return a.twa-b.twa;});return {a:c.map(function(r){return r.twa;}),v:c.map(function(r){return Math.round(r.bsp*100)/100;})};})};
+}
+function renderSpeedAll(){renderSpeed();plRender();}
+$("spApply").onclick=function(){
+  var r=speedSummary(),m=r.summary;
+  if(!m.n||!m.ok){$("spOut").className="msg err";$("spOut").innerHTML="Not applied: "+(m.n?"too few pairs or too scattered.":"no reciprocal runs measured.")+"<br>"+$("spOut").innerHTML;return;}
+  if(m.factor<0.8||m.factor>1.2||Math.abs(m.offset)>15){$("spOut").className="msg err";$("spOut").innerHTML="Not applied: the values are far out ("+m.factor+", "+m.offset+"°). Check the instruments first.<br>"+$("spOut").innerHTML;return;}
+  // the measured factor is on the raw values (the buffer takes the old correction out), so it replaces the old one
+  corr={k:m.factor,off:m.offset};if(source!=="sim")save("corr",corr);renderSpeed();
+};
+$("spReset").onclick=function(){corr={k:1,off:0};save("corr",corr);renderSpeed();};
+$("plUse").onclick=function(){
+  var p=plPolar();if(!p){$("plOut").innerHTML="Not enough learned data yet (need 3 wind speeds with at least one bin of 20 samples).<br>"+$("plOut").innerHTML;return;}
+  if(!confirm("Replace the current polar with the learned one ("+p.tws.length+" wind speeds)? Bins without enough data keep the old polar. The old polar can be restored."))return;
+  save("polar_prev",P);setPolar(p);save("polar",p);$("polarIn").value=polarToText(p);plRender();$("plOut").innerHTML="Learned polar in use.<br>"+$("plOut").innerHTML;
+};
+$("plUndo").onclick=function(){var p=load("polar_prev",null);if(!p){$("plOut").innerHTML="No previous polar saved.<br>"+$("plOut").innerHTML;return;}setPolar(p);save("polar",p);$("polarIn").value=polarToText(p);$("plOut").innerHTML="Previous polar restored.<br>"+$("plOut").innerHTML;};
+$("plClear").onclick=function(){if(!confirm("Forget everything learned for this boat?"))return;plState={s:MRPolar.emptyState(),last:0};plSave();plRender();};
 function calSummary(c){c=c||calStore();return window.MRCalib?MRCalib.summarize(c.mans,c.beats):{};}
 function renderCalib(){
+  try{renderSpeedAll();}catch(e){}
   var o=$("calOut");if(!o)return;var c=calStore(),m=calSummary(c),parts=[],f=function(v,d){return fin(v)?(+v).toFixed(d==null?1:d):"–";};
   if(!c.mans.length&&!c.beats.length){o.textContent=source==="sim"?"Simulator: steer with Helm to try it (not saved).":"Nothing measured yet: sail with the instruments, or load a race CSV.";o.className="msg";return;}
   if(m.nRate)parts.push("Turn rate <b>"+f(fin(m.luffRate)?m.luffRate:m.rate)+"°/s</b> ("+m.nRate+" turns)");
@@ -4163,13 +4250,17 @@ function calCsv(text){
   calib.mans.sort(function(a,b){return a.t-b.t;});calib.beats.sort(function(a,b){return a.t-b.t;});
   calib.mans=calib.mans.slice(-60);calib.beats=calib.beats.slice(-40);save("calib",calib);renderCalib();
   var gaps=0;for(var i=1;i<pts.length;i++)if(pts[i].t-pts[i-1].t>8)gaps++;
-  return {mans:res.mans.length,beats:res.beats.length,sparse:gaps>pts.length*0.2};
+  var out={mans:res.mans.length,beats:res.beats.length,sparse:gaps>pts.length*0.2};
+  if(window.MRPolar){var st=plStore(),sp=MRPolar.steady(pts,PL_OPT,polarBsp);MRPolar.add(st.s,sp.points,PL_OPT);plSave();plRender();out.steady=sp.points.length;}
+  var G=ix("sog_kt"),K=ix("cog_deg");
+  if(window.MRSpeedCal&&G>=0&&K>=0){var sc=MRSpeedCal.analyse(rows.map(function(l){var c=l.split(",");return {t:Date.parse(c[T])/1000,hdg:+c[H],bsp:+c[B],sog:+c[G],cog:+c[K],twa:+c[A]};}).filter(function(p){return fin(p.t);}));out.speed=sc.summary;}
+  return out;
 }
 $("calApply").onclick=function(){var d=calApply();calMsg(d.length?"Applied: "+d.join(", ")+(source==="sim"?" (simulator, not saved)":"")+".":"Nothing measured yet to apply.",d.length?"ok":"");};
-$("calClear").onclick=function(){var c=calStore();c.mans=[];c.beats=[];calSeen={};if(c===calib)save("calib",calib);renderCalib();};
+$("calClear").onclick=function(){var c=calStore();c.mans=[];c.beats=[];c.runs=[];calSeen={};if(c===calib)save("calib",calib);renderCalib();};
 $("calGuide").onclick=function(){if(window.MRVoice)MRVoice.answer("calibrazione");};
 $("calCsv").onchange=function(e){var f=e.target.files[0];if(!f)return;var rd=new FileReader();
-  rd.onload=function(){try{var r=calCsv(rd.result);calMsg("Found "+r.mans+" manoeuvres and "+r.beats+" steady beats."+(r.sparse?" This log has many holes (screen off?): few manoeuvres can be measured.":""),"ok");}catch(err){calMsg("Could not read that file: "+err.message,"err");}e.target.value="";};
+  rd.onload=function(){try{var r=calCsv(rd.result);calMsg("Found "+r.mans+" manoeuvres and "+r.beats+" steady beats"+(r.steady!=null?", "+r.steady+" steady seconds added to the learned polar":"")+(r.speed&&r.speed.n?"; speed check in this log: factor "+r.speed.factor+", heading offset "+r.speed.offset+"° ("+r.speed.n+" pairs, for information: the log was recorded with the correction of that day)":"")+"."+(r.sparse?" This log has many holes (screen off?): few manoeuvres can be measured.":""),"ok");}catch(err){calMsg("Could not read that file: "+err.message,"err");}e.target.value="";};
   rd.readAsText(f);};
 function calMsg(t,cls){var o=$("calOut");renderCalib();o.innerHTML=t+"<br>"+o.innerHTML;if(cls)o.className="msg "+cls;}
 setInterval(function(){try{calLearn();}catch(e){}},5000);
@@ -4196,6 +4287,8 @@ function helmSet(on){helm.on=on;helm.to=null;helm.rud=0;helm.hold=NaN;var b=docu
 })();
 </script>
 <script src="calib.js"></script>
+<script src="polarlearn.js"></script>
+<script src="speedcal.js"></script>
 <script src="marksimport.js"></script>
 <script src="target-tack.js"></script>
 <script src="targets.js"></script>

@@ -23,7 +23,7 @@ within limits, no tack or gybe in the window, BSP not accelerating significantly
 
 - [~] Steady-state detector — calib.js: manoeuvre detection and steady beats (≥ 30 s, TWA 25–60°); not for all points of sail
 - [x] Thresholds configurable, not hard-coded — `DEFAULTS` + options in polarlearn.js `steady()`
-- [~] Manoeuvre periods excluded from polar learning — no polar learning yet
+- [x] Manoeuvre periods excluded from polar learning — polarlearn.js `steady()` drops any point whose 20 s window has a tack/gybe, a turn or a speed trend (tested on synthetic data with manoeuvres)
 - [x] Outliers (sensor spikes, bad wind data) rejected — polarlearn.js `plausible()` (ranges, speed vs reference polar), used on live data and CSV
 
 ## 3. Learned polars

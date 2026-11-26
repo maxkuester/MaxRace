@@ -2,7 +2,7 @@
 // The model only FINDS and READS the pages (Anthropic's web search and web fetch tools run on Anthropic's side, so there is no
 // browser cross-origin problem); what MaxRace shows is NOT what the model says but the text of the documents it fetched, which then goes
 // through racedocs.js like a file the user opened (positions, times, VHF... each with its source line, to be confirmed by the user).
-//   find({event, place, year, hint}, {key, model, fetch}) -> Promise<{documents:[{url, title, kind, text | pdf (base64)}], searched, notes}>
+//   find({event | url, place, year, hint}, {key, model, fetch})   event may be a name or the address of the event page -> Promise<{documents:[{url, title, kind, text | pdf (base64)}], searched, notes}>
 // Needs an API key; sends the event name to Anthropic. Typed errors as in llm.js (code: nokey | auth | rate | network | server | request | none).
 // Works in the page (window.MRDocFinder) and in Node.
 (function (root) {
@@ -12,11 +12,18 @@
   var TOOLS_BASIC = [{ type: "web_search_20250305", name: "web_search", max_uses: 6 }, { type: "web_fetch_20250910", name: "web_fetch", max_uses: 6, max_content_tokens: 60000 }];
   var TOOLS_NEW = [{ type: "web_search_20260209", name: "web_search", max_uses: 6 }, { type: "web_fetch_20260209", name: "web_fetch", max_uses: 6, max_content_tokens: 60000 }];
   function err(code, msg) { var e = new Error(msg); e.code = code; return e; }
+  var URL_RE = /https?:\/\/[^\s"'<>]+/i;
+  var SITES = "Race documents are often on the event page of racingrulesofsailing.org (documents/<number>/event), on manage2sail.com, on the organizing club's own site or on the national federation site (federvela.it).";
+  var JSON_ANSWER = "When you are done, answer with ONLY a JSON object: {\"documents\":[{\"url\":\"...\",\"title\":\"...\",\"kind\":\"nor|si|amendment|other\"}],\"notes\":\"one short sentence, e.g. what you could not find\"}. Do not summarise the documents and do not write numbers from them.";
   function prompt(q) {
+    var u = URL_RE.exec(q.event || "") || URL_RE.exec(q.url || "");
+    if (u) {   // the user pointed at the event page: read it and follow its document links
+      return "Read this sailing event page: " + u[0] + ". Fetch it, find the documents it lists or links (Notice of Race / Bando di Regata, Sailing Instructions / Istruzioni di Regata, amendments, notices to competitors, course diagrams as text) and fetch each of them. " +
+        "Fetch the page itself first, then only documents that belong to this event. If a link is not shown in the page text, say so in notes. " + JSON_ANSWER;
+    }
     return "Find the official race documents for this sailing event: " + [q.event, q.place, q.year].filter(Boolean).join(", ") + (q.hint ? " (" + q.hint + ")" : "") + ". " +
-      "I need the Notice of Race (Bando di Regata), the Sailing Instructions (Istruzioni di Regata) and any amendments or notices to competitors (Comunicati). " +
-      "Search the web, prefer the organizing club's own site or the event site, then fetch each document page or PDF. Fetch only documents that belong to this exact event and edition. " +
-      "When you are done, answer with ONLY a JSON object: {\"documents\":[{\"url\":\"...\",\"title\":\"...\",\"kind\":\"nor|si|amendment|other\"}],\"notes\":\"one short sentence, e.g. what you could not find\"}. Do not summarise the documents and do not write numbers from them.";
+      "I need the Notice of Race (Bando di Regata), the Sailing Instructions (Istruzioni di Regata) and any amendments or notices to competitors (Comunicati). " + SITES + " " +
+      "Search the web, then fetch each document page or PDF. Fetch only documents that belong to this exact event and edition. " + JSON_ANSWER;
   }
   // fetched documents in a response's content blocks
   function fetched(content, out) {
@@ -37,7 +44,7 @@
     o = o || {};
     var f = o.fetch || (typeof fetch !== "undefined" ? fetch.bind(root) : null);
     if (!o.key) return Promise.reject(err("nokey", "no API key"));
-    if (!q || !q.event) return Promise.reject(err("request", "no event name"));
+    if (!q || !(q.event || q.url)) return Promise.reject(err("request", "no event name"));
     var tools = TOOLS_BASIC, docs = [], msgs = [{ role: "user", content: prompt(q) }], rounds = 0, searched = 0, final = null;
     function body() { return { model: o.model || LL().DEFAULT_MODEL, max_tokens: 4096, tools: tools, messages: msgs, output_config: { effort: "low" } }; }
     function step() {

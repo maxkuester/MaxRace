@@ -19,6 +19,14 @@ var fetchBlock = function (url, text) { return { type: "web_fetch_tool_result", 
   calls.length = 0;
   var f2 = fakeFetch([{ status: 400, json: { error: { message: "tools.0: web_search_20250305 is not supported for this model" } } }, { json: { stop_reason: "end_turn", content: [fetchBlock("https://a/b", NOR), { type: "text", text: "{\"documents\":[]}" }] } }]);
   var r2 = await D.find({ event: "x" }, { key: "k", fetch: f2 }); assert.strictEqual(r2.documents.length, 1); assert.strictEqual(calls[1].tools[0].type, "web_search_20260209");
+  // an event page address: the prompt tells the model to read that page and follow its links; the web page itself comes back as a document
+  calls.length = 0;
+  var pg = "https://www.racingrulesofsailing.org/documents/15881/event";
+  var f3 = fakeFetch([{ json: { stop_reason: "end_turn", content: [fetchBlock(pg, "Evento\nBando di Regata\nCanale VHF 72\n"), { type: "text", text: "{\"documents\":[{\"url\":\"" + pg + "\",\"title\":\"Evento\",\"kind\":\"other\"}]}" }] } }]);
+  var r3 = await D.find({ event: pg }, { key: "k", fetch: f3 });
+  assert(calls[0].messages[0].content.indexOf(pg) >= 0 && /Fetch it|Fetch the page itself/.test(calls[0].messages[0].content), "page prompt"); assert(!/Find the official race documents/.test(calls[0].messages[0].content));
+  assert.strictEqual(r3.documents[0].url, pg);
+  assert(/racingrulesofsailing\.org/.test(D.prompt({ event: "Trofeo X" })), "name search points at the usual document sites");
   // typed errors
   async function code(p, o) { try { await D.find(p, o); } catch (e) { return e.code; } }
   assert.strictEqual(await code({ event: "x" }, { key: "" }), "nokey"); assert.strictEqual(await code({}, { key: "k" }), "request");

@@ -78,11 +78,11 @@ the hard-coded commands. Push-to-talk, short spoken answers, low latency, proact
 
 ## 8. Pre-race research
 
-- [ ] Web search and document download (NoR, SI, amendments)
-- [ ] PDF parsing of NoR and SI
+- [ ] Web search and document download (NoR, SI, amendments) — not done: the user opens the PDF or pastes the text
+- [~] PDF parsing of NoR and SI — racedocs.js `extract()` on the text from the app's own PDF reader (Italian/English: positions, warning signal and start times, VHF, protest and race time limits, course types); tested on a synthetic PDF and text, not on a real NoR/SI; scanned PDFs cannot be read; no rounding sides, courses or amendments logic
 - [x] Mark import from GPX/KML/coordinates — marksimport.js `parse()` + file picker in Course and marks (GPX wpt/rtept, KML Point/LineString); start line by coordinates and manual marks as before; untested on a real committee file
 - [~] Entry list — pasted or CSV, matched to AIS and camera targets
-- [ ] User confirmation step and offline cache
+- [x] User confirmation step and offline cache — Course and marks > Race documents: items listed with their source line, positions ticked and confirmed before they become marks; last 6 documents kept in localStorage; voice "che canale VHF" reads the kept channel
 
 ## 9. Weather data (GRIB)
 

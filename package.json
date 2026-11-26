@@ -35,6 +35,7 @@
       "voice.js",
       "calib.js",
       "marksimport.js",
+      "racedocs.js",
       "polarlearn.js",
       "speedcal.js",
       "voicepack.js",

@@ -90,6 +90,7 @@
     if (/\b(stop|basta|zitto|silenzio|ferma)\b/.test(t)) { stopWatch(); hush(); if (st.cal) { clearInterval(st.cal.tick); st.cal = null; } say("Ok.", { flush: true }); return; }
     if (/(appl|salva|usa)\w*\s+(la\s+|le\s+)?(velocit|correzion|bussola)/.test(t)) return speedApplyV();
     if (/(calibr|tarat|tarar)\w*.*(velocit|log\b|bussola|opposte|reciproc)|(velocit|bussola).*(calibr|tarat|tarar)/.test(t)) return /appl|salva|usa/.test(t) ? speedApplyV() : speedCalibrate();
+    if (/\bvhf\b|che canale|canale radio|canale del comitato/.test(t)) return vhfAsk();
     if (/ping|pinga|pingo|pinghiamo/.test(t)) return pingLine(/pin\b|boa|sinistra|pin$/.test(t.replace(/ping[a-z]*/g, "")) ? "pin" : "boat");
     if (/se vir|posso virare|possiamo virare|virando|viro e pass|se cambio mure|se cambiamo mure|virata pass/.test(t)) return tackAsk();
     if (/incroc|passo davanti|passiamo davanti|passo dietro|chi passa/.test(t)) return crossing(/sopra|sopravento/.test(t) ? "up" : /sotto|sottovento/.test(t) ? "down" : "all", true);
@@ -456,6 +457,12 @@
     var m = M(); if (!m || !m.speedApply) return;
     var why = m.speedApply();
     say(why ? "Non applico: " + (/too few|scattered/.test(why) ? "coppie poche o troppo disperse." : /no reciprocal/.test(why) ? "non ho misure." : "i valori sono troppo fuori, controlla gli strumenti.") : "Correzione applicata a velocità e bussola.");
+  }
+  // from the race documents the user read and kept (never guessed): the VHF channel
+  function vhfAsk() {
+    var m = M(), docs = m && m.raceDocs ? m.raceDocs() : [], hit = null;
+    docs.some(function (d) { return d.items.some(function (x) { if (x.kind === "vhf") { hit = x; return true; } }); });
+    say(hit ? "Canale VHF " + hit.value + ", dal documento di regata." : "Non ho un canale VHF: leggi prima il bando o le istruzioni di regata.");
   }
   function calApplyV() {
     var d = M().calApply(); if (st.cal) { clearInterval(st.cal.tick); st.cal = null; }

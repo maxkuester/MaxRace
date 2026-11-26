@@ -128,6 +128,7 @@ function startServer(opts) {
     if (p === "/marksimport.js") return sendFile(res, path.join(o.root, "marksimport.js"));
     if (p === "/polarlearn.js") return sendFile(res, path.join(o.root, "polarlearn.js"));
     if (p === "/speedcal.js") return sendFile(res, path.join(o.root, "speedcal.js"));
+    if (p === "/racedocs.js") return sendFile(res, path.join(o.root, "racedocs.js"));
     if (p === "/calib.js") return sendFile(res, path.join(o.root, "calib.js"));
     // the tactician's own voice (scripts/voicepack-gen.py): the player and its clips, when they are on this computer
     if (p === "/voicepack.js") return sendFile(res, path.join(o.root, "voicepack.js"));

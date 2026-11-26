@@ -386,6 +386,8 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .aisrow input{width:20px;height:20px;accent-color:var(--accent)}
 .aislist li.on{border-color:var(--accent)}
 #aisBtn{font-size:.8rem}
+.gribbar{position:absolute;left:70px;right:84px;top:8px;display:flex;gap:8px;align-items:center;background:var(--face);opacity:.92;border:1px solid var(--line);border-radius:8px;padding:4px 8px;font-size:12px}
+.gribbar input{flex:1}
 
 /* ---- start view zoom toggle ---- */
 .a-free{position:relative}
@@ -543,7 +545,9 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
         <button class="btn" id="zOut" aria-label="Zoom out">−</button>
         <button class="btn" id="zFit" aria-pressed="true">Fit</button>
         <button class="btn" id="aisBtn" aria-label="AIS fleet">AIS</button>
+        <button class="btn" id="gribBtn" aria-label="Wind forecast layer" aria-pressed="false" hidden>Wind</button>
       </div>
+      <div class="gribbar" id="gribBar" hidden><input type="range" id="gribT" aria-label="Forecast time"><span id="gribLbl"></span></div>
     </div>
     <div class="mapnums">
       <div class="tile o-bsp"><div class="blk bsp" id="tm-bsp"><div class="lbl">BSP <small>kn</small></div><div class="val" id="m-bsp">--</div></div></div>
@@ -914,6 +918,13 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
         <label>Tack loss s <input type="text" id="mTack" inputmode="decimal" style="max-width:80px"></label>
         <label>Luff loss s <input type="text" id="mLuff" inputmode="decimal" style="max-width:80px"></label>
       </div>
+    </div>
+
+    <div>
+      <h3>Wind forecast (GRIB)</h3>
+      <p>Open a GRIB file (GRIB1 or GRIB2, 10 m wind; from Saildocs, zyGrib, NOAA GFS and others). It is kept on this device, so it works offline. The map gets a Wind layer with a time slider, and MaxRace compares the forecast with the wind you measured. Files packed as JPEG2000 or PNG are not read: the message says so.</p>
+      <div class="row"><input type="file" id="gribFile" accept=".grb,.grb2,.grib,.grib2,.bin,application/octet-stream"><button class="btn" id="gribDel">Remove</button></div>
+      <div class="msg" id="gribMsg">No forecast loaded.</div>
     </div>
 
     <div>
@@ -1686,6 +1697,7 @@ function drawMap(){
     if(al2&&course.auto){ctx.strokeStyle=col("--target");ctx.globalAlpha=0.35;ctx.setLineDash([3*d,4*d]);ctx.beginPath();ctx.arc(m1[0],m1[1],course.radius/1852*s,0,2*Math.PI);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;}
     if(al2){ctx.font="700 "+(13*d)+"px 'Barlow Condensed', sans-serif";ctx.textAlign="center";ctx.fillStyle=al2.leg.side==="S"?col("--stbd"):col("--port");
       ctx.fillText(al2.leg.side==="S"?"leave to STBD":"leave to PORT",m1[0],m1[1]+28*d);}}
+  if(gribLayer())drawGrib(ctx,col,d,W,H,s,cx,cy,lat0,lon0,k);
   // boat, with a 1-minute COG/SOG vector
   var bp=sc([0,0]);
   function tag(t,x,y,c,sz,al){ctx.font="700 "+(sz*d)+"px "+cs.getPropertyValue("--digits");ctx.textAlign=al||"center";ctx.textBaseline="middle";
@@ -2193,7 +2205,7 @@ window.MRT={own:function(){return S;},targets:targetsIn,nat:nat,native:NATIVE,
   addMark:function(name,lat,lon){var id=addMark(name,lat,lon,false);saveCourse();renderCourse();return id;},
   moveMark:function(id,lat,lon){var m=markById(id);if(!m)return;m.lat=lat;m.lon=lon;saveCourse();renderCourse();},
   // for the voice (voice.js): what it reads out
-  tgt:function(w){return targets(w);},hist:function(){return hist;},ais:function(){return ais;},cam:function(){return camTargets;},dest:dest,
+  tgt:function(w){return targets(w);},forecast:function(lat,lon,t){return gribAt(lat,lon,t);},gribInfo:function(){return gribInfo();},hist:function(){return hist;},ais:function(){return ais;},cam:function(){return camTargets;},dest:dest,
   startInfo:function(){return startInfo();},cdRem:function(){return cdRem(Date.now());},ping:function(w){ping(w);},
   layInfo:function(){return layInfo();},dtwBtw:function(){return dtwBtw();},perfNow:function(){return perfNow();},vmc:function(){return vmcNow();},
   setCD:function(sec){setCD(sec);$("cdStop").textContent="Stop";},
@@ -2488,6 +2500,73 @@ $("crsFile").onchange=function(e){
   rd.onerror=function(){crsMsg("Cannot read "+f.name+".","err");};
   rd.readAsText(f);
 };
+/* ---------- wind forecast (grib.js): file kept in IndexedDB, map layer with a time slider, forecast against measured ---------- */
+var gribWind=null,gribName="",gribShow=load("gribOn",false),gribT=null;
+function gribMsg(t,c){var m=$("gribMsg");if(m){m.textContent=t;m.className="msg "+(c||"");}}
+function idb(mode,fn){
+  return new Promise(function(res,rej){
+    try{var rq=indexedDB.open("maxrace",1);rq.onupgradeneeded=function(){rq.result.createObjectStore("kv");};
+      rq.onerror=function(){rej(rq.error);};
+      rq.onsuccess=function(){var db=rq.result,tx=db.transaction("kv",mode),st=tx.objectStore("kv"),r=fn(st);tx.oncomplete=function(){db.close();res(r&&r.result);};tx.onerror=function(){rej(tx.error);};};
+    }catch(e){rej(e);}
+  });
+}
+function gribSet(buf,name,keep){
+  var r=MRGrib.parse(buf),w=MRGrib.buildWind(r.fields);
+  if(!w){var why=r.skipped.length?" ("+r.skipped.slice(0,2).map(function(x){return (x.param?x.param+": ":"")+x.reason;}).join("; ")+")":"";throw new Error("no 10 m wind found in this file"+why);}
+  gribWind=w;gribName=name;gribT=null;
+  if(keep)idb("readwrite",function(st){return st.put({name:name,buf:buf,t:Date.now()},"grib");}).catch(function(){gribMsg("Loaded, but it could not be kept for offline use on this device.","err");});
+  gribUi();return {skipped:r.skipped,ignored:w.ignored};
+}
+function gribInfo(){
+  if(!gribWind)return null;var b=MRGrib.bounds(gribWind),n=gribWind.times.length;
+  return {name:gribName,from:b.from,to:b.to,steps:n,stepH:n>1?(gribWind.times[1]-gribWind.times[0])/3600000:null,north:b.north,south:b.south,west:b.west,east:b.east};
+}
+function gribAt(lat,lon,t){return gribWind?MRGrib.sample(gribWind,lat,lon,t==null?Date.now():t):null;}
+function gribLayer(){return gribWind&&gribShow;}
+function gribUi(){
+  var i=gribInfo(),f=function(t){return new Date(t).toLocaleString([],{weekday:"short",hour:"2-digit",minute:"2-digit"});};
+  $("gribBtn").hidden=!i;$("gribBtn").setAttribute("aria-pressed",!!gribLayer());$("gribBar").hidden=!gribLayer();
+  if(!i){gribMsg("No forecast loaded.");return;}
+  var sl=$("gribT");sl.min=i.from;sl.max=i.to;sl.step=900000;sl.value=Math.min(i.to,Math.max(i.from,gribT==null?Date.now():gribT));
+  var cmp=gribCompare();
+  gribMsg(i.name+": "+f(i.from)+" to "+f(i.to)+", "+i.steps+" time"+(i.steps===1?"":"s")+(i.stepH?" every "+i.stepH+" h":"")+", area "+i.south.toFixed(1)+"–"+i.north.toFixed(1)+"°N, "+i.west.toFixed(1)+"–"+i.east.toFixed(1)+"°E."+(cmp?" "+cmp:""),"ok");
+  $("gribLbl").textContent=f(+sl.value)+(Math.abs(+sl.value-Date.now())<600000?" (now)":"");
+}
+// forecast against what was measured over the last 30 minutes, at the boat's own position and time
+function gribCompare(){
+  if(!gribWind||!hist.length)return "";
+  var n=0,dd=[],ds=[],now=Date.now(),last=0;
+  hist.forEach(function(h){
+    if(now-h.t>1800000||h.t-last<60000||!fin(h.twd)||!fin(h.tws)||!fin(h.lat))return;last=h.t;
+    var f=MRGrib.sample(gribWind,h.lat,h.lon,h.t);if(!f)return;
+    dd.push(wrap180(f.twd_deg-h.twd));ds.push(f.tws_kn-h.tws);n++;
+  });
+  if(n<3)return "";
+  var mean=function(a){return a.reduce(function(x,y){return x+y;},0)/a.length;},mae=function(a){return mean(a.map(Math.abs));},sg=function(v,d){return (v>0?"+":"")+v.toFixed(d);};
+  return "Forecast against measured, last "+n+" min: direction "+sg(mean(dd),0)+"° (typical error "+mae(dd).toFixed(0)+"°), speed "+sg(mean(ds),1)+" kn (typical error "+mae(ds).toFixed(1)+" kn).";
+}
+function drawGrib(ctx,col,d,W,H,s,cx,cy,lat0,lon0,k){
+  var t=gribT==null?Date.now():gribT,stepPx=70*d;ctx.save();ctx.textAlign="center";ctx.textBaseline="middle";ctx.font="700 "+(10*d)+"px "+getComputedStyle(document.documentElement).getPropertyValue("--digits");
+  for(var X=stepPx/2;X<W;X+=stepPx)for(var Y=stepPx/2;Y<H;Y+=stepPx){
+    var nx=cx+(X-W/2)/s,ny=cy-(Y-H/2)/s,f=MRGrib.sample(gribWind,lat0+ny/60,lon0+nx/(60*k),t);if(!f)continue;
+    var to=(f.twd_deg+180)*D2R,dx=Math.sin(to),dy=-Math.cos(to),L=16*d,c="hsl("+Math.round(220-Math.min(1,f.tws_kn/30)*220)+",75%,50%)";
+    ctx.globalAlpha=0.8;ctx.strokeStyle=c;ctx.fillStyle=c;ctx.lineWidth=2*d;ctx.beginPath();ctx.moveTo(X-dx*L,Y-dy*L);ctx.lineTo(X+dx*L,Y+dy*L);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(X+dx*L,Y+dy*L);ctx.lineTo(X+dx*L-dx*7*d-dy*4*d,Y+dy*L-dy*7*d+dx*4*d);ctx.lineTo(X+dx*L-dx*7*d+dy*4*d,Y+dy*L-dy*7*d-dx*4*d);ctx.closePath();ctx.fill();
+    ctx.globalAlpha=1;ctx.lineWidth=3*d;ctx.strokeStyle=col("--face");ctx.strokeText(Math.round(f.tws_kn),X-dy*10*d,Y+dx*10*d);ctx.fillStyle=col("--ink");ctx.fillText(Math.round(f.tws_kn),X-dy*10*d,Y+dx*10*d);
+  }
+  ctx.restore();
+}
+$("gribFile").onchange=function(e){
+  var f=e.target.files&&e.target.files[0];e.target.value="";if(!f||!window.MRGrib)return;gribMsg("Reading…");
+  f.arrayBuffer().then(function(b){var r=gribSet(b,f.name,true);if(r.skipped.length)gribMsg($("gribMsg").textContent+" Not read: "+r.skipped.slice(0,3).map(function(x){return (x.param?x.param+": ":"")+x.reason;}).join("; ")+".","ok");gribShow=true;save("gribOn",true);gribUi();if(view==="map"||view==="both")drawMap();})
+   .catch(function(er){gribMsg("Could not read "+f.name+": "+er.message,"err");});
+};
+$("gribDel").onclick=function(){gribWind=null;gribName="";idb("readwrite",function(st){return st.delete("grib");}).catch(function(){});gribUi();if(view==="map"||view==="both")drawMap();};
+$("gribBtn").onclick=function(){gribShow=!gribShow;save("gribOn",gribShow);gribUi();drawMap();};
+$("gribT").oninput=function(){gribT=+this.value;if(Math.abs(gribT-Date.now())<600000)gribT=null;gribUi();drawMap();};
+setInterval(function(){if(gribWind){try{if($("gribBar").hidden===false&&gribT==null)gribUi();}catch(e){}}},60000);
+window.addEventListener("load",function(){if(window.MRGrib)idb("readonly",function(st){return st.get("grib");}).then(function(r){if(r&&r.buf){try{gribSet(r.buf,r.name,false);}catch(e){gribMsg("The kept forecast could not be read: "+e.message,"err");}}}).catch(function(){});});   // the module scripts load after this one
 /* ---------- race documents (racedocs.js): read, confirm, keep offline ---------- */
 var rdDocs=load("racedocs",[]),rdCur=null;
 function rdMsg(t,c){var m=$("rdMsg");m.textContent=t;m.className="msg "+(c||"");}
@@ -4361,6 +4440,7 @@ function helmSet(on){helm.on=on;helm.to=null;helm.rud=0;helm.hold=NaN;var b=docu
 <script src="calib.js"></script>
 <script src="polarlearn.js"></script>
 <script src="speedcal.js"></script>
+<script src="grib.js"></script>
 <script src="marksimport.js"></script>
 <script src="racedocs.js"></script>
 <script src="target-tack.js"></script>

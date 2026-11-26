@@ -497,6 +497,11 @@
         return m.fleetBoats().map(function (b) { var dx = (b.lon - S.lon) * kx, dy = (b.lat - S.lat) * 111120; return { name: b.name, dist_m: Math.hypot(dx, dy), bearing_deg: wrap360(Math.atan2(dx, dy) * R2D), cog_deg: b.cog, sog_kn: b.sog }; })
           .sort(function (a, b) { return a.dist_m - b.dist_m; }).slice(0, 8);
       }),
+      get_forecast_wind: T("Wind forecast (from the GRIB file the user loaded) at the boat's position: now, in 1 h and in 3 h, with true wind direction and speed; null where the file does not cover. Also the forecast file's coverage.", function () {
+        var m = M(), S = m.own(), now = Date.now(), at = function (h) { var f = fin(S.lat) && m.forecast ? m.forecast(S.lat, S.lon, now + h * 3600000) : null; return f ? { twd_deg: f.twd_deg, tws_kn: f.tws_kn } : null; };
+        var i = m.gribInfo ? m.gribInfo() : null; if (!i) return { loaded: false };
+        return { loaded: true, now: at(0), in_1h: at(1), in_3h: at(3), file_from: new Date(i.from).toISOString(), file_to: new Date(i.to).toISOString() };
+      }),
       get_calibration: T("What MaxRace measured on this boat: turn rate, tack and luff loss in seconds and metres (also by wind band), speed against the polar upwind, speed and compass correction in use.", function () {
         var s = M().calib().sum; return { turn_rate_deg_s: s.rate, tack_loss_s: s.tackLoss, tack_loss_m: s.tackLossM, tack_speed_drop_kn: s.vdrop, luff_loss_s: s.luffLoss, polar_pct_upwind: s.pct, bands: s.bands };
       }),

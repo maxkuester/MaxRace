@@ -14,6 +14,7 @@ fs.copyFileSync(path.join(root, "targets.js"), path.join(out, "targets.js"));
 fs.copyFileSync(path.join(root, "voice.js"), path.join(out, "voice.js"));
 fs.copyFileSync(path.join(root, "calib.js"), path.join(out, "calib.js"));
 fs.copyFileSync(path.join(root, "marksimport.js"), path.join(out, "marksimport.js"));
+fs.copyFileSync(path.join(root, "grib.js"), path.join(out, "grib.js"));
 fs.copyFileSync(path.join(root, "llm.js"), path.join(out, "llm.js"));
 fs.copyFileSync(path.join(root, "racedocs.js"), path.join(out, "racedocs.js"));
 fs.copyFileSync(path.join(root, "polarlearn.js"), path.join(out, "polarlearn.js"));

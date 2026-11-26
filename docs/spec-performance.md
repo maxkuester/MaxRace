@@ -86,10 +86,10 @@ the hard-coded commands. Push-to-talk, short spoken answers, low latency, proact
 
 ## 9. Weather data (GRIB)
 
-- [ ] GRIB download and parsing
-- [ ] Offline cache
-- [ ] Map display with time slider
-- [ ] Forecast vs measured comparison
+- [~] GRIB download and parsing — parsing: grib.js (GRIB1 simple packing; GRIB2 lat/lon grid, packing 5.0/5.2/5.3, U/V or direction/speed at 10 m, bitmap); file opened by the user in Settings > Wind forecast. JPEG2000/PNG/CCSDS packing not read (reported), no Gaussian/rotated grids. Tested only on GRIB files built by the test's own encoder (scripts/test-grib.js), never on a real GRIB file. No download: not done
+- [x] Offline cache — the GRIB file is kept in IndexedDB and reloaded at start (tested: survives a page reload)
+- [x] Map display with time slider — Wind layer on the map (arrows coloured by speed, knots written), slider over the file's times; checked in a headless browser screenshot
+- [~] Forecast vs measured comparison — bias and typical error of direction and speed over the last 30 min at the boat's position (gribCompare()); only the last 30 min, no per-wind-band report
 
 ## 10. Offshore routing
 

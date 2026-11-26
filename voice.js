@@ -23,7 +23,7 @@
   function save(k, v) { try { localStorage.setItem("mrv." + k, JSON.stringify(v)); } catch (e) {} }
   var M = function () { return window.MRT; };
 
-  var cfg = { stem: load("stem", true), shifts: load("shifts", true), shiftDeg: load("shiftDeg", 5), countdown: load("countdown", true), burn: load("burn", true), goCall: load("goCall", true), tackCall: load("tackCall", true), myVoice: load("myVoice", true), unit: load("unit", "len"), boatLen: load("boatLen", 9.6) };
+  var cfg = { stem: load("stem", true), shifts: load("shifts", true), shiftDeg: load("shiftDeg", 5), countdown: load("countdown", true), burn: load("burn", true), goCall: load("goCall", true), tackCall: load("tackCall", true), myVoice: load("myVoice", true), unit: load("unit", "len"), boatLen: load("boatLen", 9.6), llmOn: load("llmOn", false), llmAll: load("llmAll", false), llmModel: load("llmModel", "") };
   var st = { listening: false, watch: null, lastShift: 0, lastCd: null, onState: null, heard: "" };
 
   // ---------- speaking ----------
@@ -75,7 +75,7 @@
   }
   function heard(o) {
     console.log("[voice] heard", JSON.stringify(o));
-    st.heard = o.text || "";
+    st.heard = o.text || ""; st.heardAt = Date.now();
     if (o.final) { st.listening = false; state(); if (st.heard) answer(st.heard); else say("Non ho sentito."); }
     else state();
   }
@@ -88,6 +88,7 @@
   function answer(q) {
     var t = q.toLowerCase();
     if (/\b(stop|basta|zitto|silenzio|ferma)\b/.test(t)) { stopWatch(); hush(); if (st.cal) { clearInterval(st.cal.tick); st.cal = null; } say("Ok.", { flush: true }); return; }
+    if (cfg.llmOn && cfg.llmAll && llmKey() && !st.cal) return llmAnswer(q);
     if (/(appl|salva|usa)\w*\s+(la\s+|le\s+)?(velocit|correzion|bussola)/.test(t)) return speedApplyV();
     if (/(calibr|tarat|tarar)\w*.*(velocit|log\b|bussola|opposte|reciproc)|(velocit|bussola).*(calibr|tarat|tarar)/.test(t)) return /appl|salva|usa/.test(t) ? speedApplyV() : speedCalibrate();
     if (/\bvhf\b|che canale|canale radio|canale del comitato/.test(t)) return vhfAsk();
@@ -105,6 +106,7 @@
     if (/vento|rotaz|salto|ruota|gira|raffica|pressione/.test(t)) { var mm = t.match(/(\d+|un|uno|due|tre|quattro|cinque|sei|dieci)\s*minut/); return wind(mm ? word(mm[1]) : 2); }
     if (/boa|marca|mark|bearing/.test(t)) return mark();
     if (/velocit|target|polare|come andiamo|andiamo|vmg/.test(t)) return speed();
+    if (cfg.llmOn && llmKey() && !st.cal) return llmAnswer(q);
     say("Non ho capito. Puoi chiedere: incroci, se viro, vento, linea, pinga comitato, boa, layline, velocità.");
   }
   function word(x) { return { un: 1, uno: 1, due: 2, tre: 3, quattro: 4, cinque: 5, sei: 6, dieci: 10 }[x] || +x || 2; }
@@ -458,6 +460,78 @@
     var why = m.speedApply();
     say(why ? "Non applico: " + (/too few|scattered/.test(why) ? "coppie poche o troppo disperse." : /no reciprocal/.test(why) ? "non ho misure." : "i valori sono troppo fuori, controlla gli strumenti.") : "Correzione applicata a velocità e bussola.");
   }
+  // ---------- conversational assistant (llm.js): a cloud model that asks these read-only tools ----------
+  // The key lives only on this device (localStorage, not in the boat profile, not synced, not in the repository).
+  function llmKey() { try { return localStorage.getItem("mrv.llmKey") || ""; } catch (e) { return ""; } }
+  function llmSetKey(k) { try { if (k) localStorage.setItem("mrv.llmKey", k); else localStorage.removeItem("mrv.llmKey"); } catch (e) {} st.llm = null; }
+  function r1(x) { return fin(x) ? Math.round(x * 10) / 10 : null; }
+  function llmTools() {
+    var T = function (description, run, props) { return { description: description, run: run, input_schema: { type: "object", properties: props || {}, additionalProperties: false } }; };
+    return {
+      get_boat_state: T("Live instruments: boat speed (bsp_kn), speed over ground, headings, true and apparent wind (tws_kn, twa_deg positive on starboard, twd_deg), heel, polar_pct (boat speed as % of the polar target) and the polar targets upwind and downwind at this wind speed.", function () {
+        var m = M(), S = m.own(), pp = m.perfNow(), tg = fin(S.tws) && m.tgt ? m.tgt(S.tws) : null;
+        return { bsp_kn: S.bsp, sog_kn: S.sog, cog_deg: S.cog, hdg_deg: S.hdg, tws_kn: S.tws, twa_deg: S.twa, twd_deg: S.twd, aws_kn: S.aws, awa_deg: S.awa, heel_deg: S.heel,
+          polar_pct: fin(pp) ? pp * 100 : null, target_upwind: tg ? { twa_deg: tg.up.twa, bsp_kn: tg.up.bsp, vmg_kn: tg.up.vmg } : null, target_downwind: tg ? { twa_deg: tg.dn.twa, bsp_kn: tg.dn.bsp, vmg_kn: tg.dn.vmg } : null };
+      }),
+      get_wind_trend: T("True wind direction and speed now (last 20 s) and N minutes ago, with the change; use it for shifts and pressure.", function (i) {
+        var w = windNow(Math.max(1, Math.min(30, +i.minutes || 5)));
+        return { minutes: Math.max(1, Math.min(30, +i.minutes || 5)), twd_now_deg: w.now, twd_then_deg: w.then, twd_change_deg: fin(w.now) && fin(w.then) ? wrap180(w.now - w.then) : null, tws_now_kn: w.tws, tws_then_kn: w.tws0 };
+      }, { minutes: { type: "number", description: "how many minutes back, 1 to 30" } }),
+      get_start_line: T("Start line and countdown: countdown_s, distance to the line (positive = on the course side, behind the line = negative), seconds to reach the line, favoured end and bias, and the time to the line if luffing or tacking now. Null if no line is set.", function () {
+        var m = M(), s = m.startInfo(), cd = m.cdRem(); if (!s) return { countdown_s: cd, line: null };
+        return { countdown_s: cd, line_length_m: s.len * 1852, distance_to_line_m: s.d * 1852, seconds_to_line_on_this_course: s.ttl, favoured_end: s.fav || null, bias_deg: s.biasDeg, advantage_m: fin(s.adv) ? s.adv * 1852 : null,
+          dist_to_pin_m: s.dPin * 1852, dist_to_boat_end_m: s.dBoat * 1852, luff_to_line_s: s.luff && s.luff.ok ? s.luff.time : null, tack_to_line_s: s.tackUp && s.tackUp.ok ? s.tackUp.time : null };
+      }),
+      get_laylines: T("Layline to the active mark on each tack: distance (nm), speed (kn), tack penalty (s) already added to time_s, whether overstood (past) or converging (hit).", function () {
+        var li = M().layInfo(); if (!li) return null; var o = {};
+        ["port", "stbd"].forEach(function (k) { var x = li[k]; o[k] = !x ? null : { mode: x.mode, hit: !!x.hit, past: !!x.past, distance_nm: x.d, speed_kn: x.spd, tack_penalty_s: x.pen || 0, time_s: x.hit && x.spd > 0.3 ? x.d / x.spd * 3600 + (x.pen || 0) : null }; });
+        return o;
+      }),
+      get_active_mark: T("Active course mark: distance (nm), bearing, velocity made good to it (kn).", function () { var m = M(), d = m.dtwBtw(); return { distance_nm: d.d, bearing_deg: d.b, vmc_kn: m.vmc() }; }),
+      get_tack_crossings: T("Boats we would cross if we tacked now: seconds to the crossing, margin in metres (positive = we pass ahead), distance in metres, name.", function () {
+        return (M().tackCross() || []).slice(0, 6).map(function (c) { return { name: c.name, t_s: c.t, margin_m: c.margin, dist_m: c.dist, bearing_deg: c.brg, src: c.src }; });
+      }),
+      get_fleet: T("The nearest other boats (AIS and camera): name, distance in metres, bearing from us, course and speed.", function () {
+        var m = M(), S = m.own(); if (!fin(S.lat)) return [];
+        var kx = 111120 * Math.cos(S.lat * D2R);
+        return m.fleetBoats().map(function (b) { var dx = (b.lon - S.lon) * kx, dy = (b.lat - S.lat) * 111120; return { name: b.name, dist_m: Math.hypot(dx, dy), bearing_deg: wrap360(Math.atan2(dx, dy) * R2D), cog_deg: b.cog, sog_kn: b.sog }; })
+          .sort(function (a, b) { return a.dist_m - b.dist_m; }).slice(0, 8);
+      }),
+      get_calibration: T("What MaxRace measured on this boat: turn rate, tack and luff loss in seconds and metres (also by wind band), speed against the polar upwind, speed and compass correction in use.", function () {
+        var s = M().calib().sum; return { turn_rate_deg_s: s.rate, tack_loss_s: s.tackLoss, tack_loss_m: s.tackLossM, tack_speed_drop_kn: s.vdrop, luff_loss_s: s.luffLoss, polar_pct_upwind: s.pct, bands: s.bands };
+      }),
+      get_race_documents: T("Items read from the race documents the user kept (notice of race, sailing instructions): start times, VHF channel, time limits, course notes, each with its source text.", function () {
+        var out = []; (M().raceDocs() || []).forEach(function (d) { d.items.forEach(function (x) { if (x.kind !== "mark") out.push({ document: d.name, kind: x.kind, label: x.label, value: x.value, text: x.text }); }); }); return out.slice(0, 30);
+      })
+    };
+  }
+  function llmClient() {
+    if (!st.llm || st.llmModel !== cfg.llmModel) { st.llmModel = cfg.llmModel; st.llm = window.MRLLM.create({ getKey: llmKey, getModel: function () { return cfg.llmModel || undefined; }, tools: llmTools() }); }
+    return st.llm;
+  }
+  function llmLog(r) {
+    var a = load("lat", []); a.push({ t: Date.now(), ms: r.total, apiMs: r.apiMs, rounds: r.rounds }); a = a.slice(-30); save("lat", a);
+  }
+  // end-to-end: from the question heard (or typed) to the moment the answer is handed to the speech
+  function latency() {
+    var a = load("lat", []), v = a.map(function (x) { return x.ms; }).sort(function (x, y) { return x - y; });
+    return { n: a.length, median: v.length ? v[v.length >> 1] : NaN, p90: v.length ? v[Math.min(v.length - 1, Math.floor(v.length * 0.9))] : NaN, last: a.length ? a[a.length - 1] : null };
+  }
+  function llmAnswer(q) {
+    if (!window.MRLLM) { say("L'assistente non è caricato."); return; }
+    var t0 = st.heardAt && Date.now() - st.heardAt < 15000 ? st.heardAt : Date.now(); st.heardAt = 0;
+    return llmClient().ask(q).then(function (r) {
+      var txt = r.text || "Non ho una risposta.";
+      if (r.unverified.length) txt += " Attenzione: " + (r.unverified.length === 1 ? "il numero " : "i numeri ") + r.unverified.join(", ") + " non risulta dai dati.";
+      llmLog({ total: Date.now() - t0, apiMs: r.apiMs, rounds: r.rounds });
+      say(txt, { flush: true });
+    }).catch(function (e) {
+      console.log("[voice] llm error", e && e.code, e && e.message);
+      var c = e && e.code;
+      if (c === "network" || c === "server") { say("Non riesco a collegarmi all'assistente. Uso i comandi base: puoi chiedere incroci, se viro, vento, linea, boa, layline, velocità."); }
+      else say(c === "auth" ? "La chiave dell'assistente non è valida." : c === "rate" ? "Troppe richieste all'assistente, riprova tra poco." : c === "refused" ? "A questo non posso rispondere." : c === "nokey" ? "Manca la chiave dell'assistente nelle impostazioni." : "L'assistente non ha risposto.");
+    });
+  }
   // from the race documents the user read and kept (never guessed): the VHF channel
   function vhfAsk() {
     var m = M(), docs = m && m.raceDocs ? m.raceDocs() : [], hit = null;
@@ -511,7 +585,7 @@
   function stemOn(on) { var m = M(); if (m && m.native) m.nat({ cmd: "voiceOn", on: !!on }); }
 
   window.MRVoice = {
-    listen: listen, say: say, answer: answer, goWatch: goWatch, goInfo: goInfo, tackAsk: tackAsk, tackWatch: tackWatch, calibrate: calibrate, cfg: cfg, st: st, stemOn: stemOn,
+    listen: listen, say: say, answer: answer, goWatch: goWatch, goInfo: goInfo, tackAsk: tackAsk, tackWatch: tackWatch, calibrate: calibrate, cfg: cfg, st: st, stemOn: stemOn, llmSetKey: llmSetKey, llmHasKey: function () { return !!llmKey(); }, latency: latency,
     set: function (k, v) { cfg[k] = v; save(k, v); if (k === "stem") stemOn(v); },
     init: function () { if (cfg.stem) stemOn(true); if (window.MRVoicePack) window.MRVoicePack.load("voicepack/").then(function (j) { if (st.onPack) st.onPack(j); }).catch(function () { if (st.onPack) st.onPack(null); }); }
   };

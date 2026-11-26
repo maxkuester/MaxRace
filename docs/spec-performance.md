@@ -72,8 +72,8 @@ the hard-coded commands. Push-to-talk, short spoken answers, low latency, proact
 - [~] Internal API exposing live data — window.MRT (own, hist, ais, cam, startInfo, layInfo, perfNow, tackCross, fleetBoats…)
 - [x] Speech-to-text and text-to-speech — voice.js + native (iOS SFSpeechRecognizer / AVSpeechSynthesizer, Android)
 - [x] Proactive alerts — wind shifts, countdown and burn, "Bolina, ora!", "Puoi virare", TWD by tack
-- [ ] LLM layer with tool calling; online/offline switching
-- [ ] Latency measured end to end
+- [~] LLM layer with tool calling; online/offline switching — llm.js (Messages API by plain fetch, tool loop, numbers in the answer checked against the tool results) + 9 read-only tools in voice.js `llmTools()`; Settings > Voice > Race assistant (key on the device only); built-in commands first, assistant for what they do not understand (or for everything, if chosen); offline or server error falls back to the built-in commands. Tested only against a mocked API, never against the real one
+- [~] Latency measured end to end — voice.js `latency()` (median, slowest tenth, last) from the question heard/typed to the answer handed to the speech, shown in Settings; not to the first audio, and no real figures yet
 - [~] Natural voice — voice pack player (voicepack.js) and generator on the Mac (scripts/voicepack-gen.py); pack not generated yet
 
 ## 8. Pre-race research

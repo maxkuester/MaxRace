@@ -35,6 +35,7 @@
       "voice.js",
       "calib.js",
       "marksimport.js",
+      "routing.js",
       "grib.js",
       "llm.js",
       "racedocs.js",

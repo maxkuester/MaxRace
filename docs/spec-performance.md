@@ -93,17 +93,17 @@ the hard-coded commands. Push-to-talk, short spoken answers, low latency, proact
 
 ## 10. Offshore routing
 
-- [ ] Isochrone routing engine
-- [ ] Land and exclusion zone avoidance
-- [ ] Uses learned polars
-- [ ] Re-routing on new data
-- [ ] Multi-model comparison
+- [x] Isochrone routing engine — routing.js `route()` (bearing-sector pruning, tack penalty, time-varying wind); checked against known answers (reach 2.5 h; upwind within 0.2% of the VMG limit) in scripts/test-routing.js; Route on the map draws it with the ETA
+- [~] Land and exclusion zone avoidance — the engine avoids exclusion polygons and a `blocked()` callback (tested); no coastline data and no way to draw zones in the app yet, so the route can cross land
+- [x] Uses learned polars — the route uses polarBsp(), which is the learned polar once "Use learned polar" is applied, and the measured tack cost
+- [~] Re-routing on new data — recomputed every 2 min from the boat's position and when a GRIB is loaded; not on wind changes in between
+- [~] Multi-model comparison — routing.js `compare()` (tested with two winds); the app holds one GRIB, so no screen for it
 
 ## 11. Advanced routing tools
 
-- [ ] Ensemble routing
-- [ ] Departure planning
-- [ ] Measured-wind bias correction
+- [~] Ensemble routing — routing.js `ensemble()` and the Ensemble button (direction ±15°, speed ±10% around one wind, 9 runs); not real ensemble-model members
+- [x] Departure planning — routing.js `departureScan()` and the Best departure button (next 12 h, needs a GRIB); no wait-at-sea option
+- [~] Measured-wind bias correction — routing.js `biasWind()` exists and is tested; the app does not use it yet (the route uses the measured wind for the first 10 min only)
 - [ ] Sail crossover charts
 
 ## 12. Calibration trials mode

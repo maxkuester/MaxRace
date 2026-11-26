@@ -502,6 +502,9 @@
         var i = m.gribInfo ? m.gribInfo() : null; if (!i) return { loaded: false };
         return { loaded: true, now: at(0), in_1h: at(1), in_3h: at(3), file_from: new Date(i.from).toISOString(), file_to: new Date(i.to).toISOString() };
       }),
+      get_route: T("The fastest route to the active mark as MaxRace computes it (when the user has the Route layer on): hours to go, arrival time, number of tacks/gybes, distance sailed against direct distance, and which wind it used. Null if no route is on.", function () {
+        var r = M().route ? M().route() : null; return r ? { hours: r.hours, arrival: new Date(r.eta).toISOString(), tacks_gybes: r.tacks, sailed_nm: r.sailedNm, direct_nm: r.directNm, wind_used: r.src } : null;
+      }),
       get_calibration: T("What MaxRace measured on this boat: turn rate, tack and luff loss in seconds and metres (also by wind band), speed against the polar upwind, speed and compass correction in use.", function () {
         var s = M().calib().sum; return { turn_rate_deg_s: s.rate, tack_loss_s: s.tackLoss, tack_loss_m: s.tackLossM, tack_speed_drop_kn: s.vdrop, luff_loss_s: s.luffLoss, polar_pct_upwind: s.pct, bands: s.bands };
       }),

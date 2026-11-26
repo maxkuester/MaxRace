@@ -546,6 +546,7 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
         <button class="btn" id="zFit" aria-pressed="true">Fit</button>
         <button class="btn" id="aisBtn" aria-label="AIS fleet">AIS</button>
         <button class="btn" id="gribBtn" aria-label="Wind forecast layer" aria-pressed="false" hidden>Wind</button>
+        <button class="btn" id="routeBtn" aria-label="Fastest route to the active mark" aria-pressed="false">Route</button>
       </div>
       <div class="gribbar" id="gribBar" hidden><input type="range" id="gribT" aria-label="Forecast time"><span id="gribLbl"></span></div>
     </div>
@@ -925,6 +926,13 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
       <p>Open a GRIB file (GRIB1 or GRIB2, 10 m wind; from Saildocs, zyGrib, NOAA GFS and others). It is kept on this device, so it works offline. The map gets a Wind layer with a time slider, and MaxRace compares the forecast with the wind you measured. Files packed as JPEG2000 or PNG are not read: the message says so.</p>
       <div class="row"><input type="file" id="gribFile" accept=".grb,.grb2,.grib,.grib2,.bin,application/octet-stream"><button class="btn" id="gribDel">Remove</button></div>
       <div class="msg" id="gribMsg">No forecast loaded.</div>
+    </div>
+
+    <div>
+      <h3>Routing to the active mark</h3>
+      <p>The Route button on the map works out the fastest way from the boat to the active mark with the boat's polar (learned polar if you use it), the tack cost measured on this boat, and the forecast wind if a GRIB covers the route (else the wind measured now, held constant). It is recomputed every two minutes and when the forecast changes. There is no coastline in MaxRace: the route can cross land, so check it on the chart.</p>
+      <div class="row"><button class="btn" id="rtEns">Ensemble (±15°, ±10%)</button><button class="btn" id="rtDep">Best departure (next 12 h)</button></div>
+      <div class="msg" id="rtMsg">Choose Route on the map.</div>
     </div>
 
     <div>
@@ -1698,6 +1706,7 @@ function drawMap(){
     if(al2){ctx.font="700 "+(13*d)+"px 'Barlow Condensed', sans-serif";ctx.textAlign="center";ctx.fillStyle=al2.leg.side==="S"?col("--stbd"):col("--port");
       ctx.fillText(al2.leg.side==="S"?"leave to STBD":"leave to PORT",m1[0],m1[1]+28*d);}}
   if(gribLayer())drawGrib(ctx,col,d,W,H,s,cx,cy,lat0,lon0,k);
+  if(routeShow&&routeRes&&routeRes.ok)drawRoute(ctx,col,d,sc,nm);
   // boat, with a 1-minute COG/SOG vector
   var bp=sc([0,0]);
   function tag(t,x,y,c,sz,al){ctx.font="700 "+(sz*d)+"px "+cs.getPropertyValue("--digits");ctx.textAlign=al||"center";ctx.textBaseline="middle";
@@ -2205,7 +2214,7 @@ window.MRT={own:function(){return S;},targets:targetsIn,nat:nat,native:NATIVE,
   addMark:function(name,lat,lon){var id=addMark(name,lat,lon,false);saveCourse();renderCourse();return id;},
   moveMark:function(id,lat,lon){var m=markById(id);if(!m)return;m.lat=lat;m.lon=lon;saveCourse();renderCourse();},
   // for the voice (voice.js): what it reads out
-  tgt:function(w){return targets(w);},forecast:function(lat,lon,t){return gribAt(lat,lon,t);},gribInfo:function(){return gribInfo();},hist:function(){return hist;},ais:function(){return ais;},cam:function(){return camTargets;},dest:dest,
+  tgt:function(w){return targets(w);},route:function(){return routeRes&&routeRes.ok?{eta:routeRes.eta,hours:routeRes.hours,tacks:routeRes.tacks,sailedNm:routeRes.sailedNm,directNm:routeRes.directNm,src:routeRes.src}:null;},forecast:function(lat,lon,t){return gribAt(lat,lon,t);},gribInfo:function(){return gribInfo();},hist:function(){return hist;},ais:function(){return ais;},cam:function(){return camTargets;},dest:dest,
   startInfo:function(){return startInfo();},cdRem:function(){return cdRem(Date.now());},ping:function(w){ping(w);},
   layInfo:function(){return layInfo();},dtwBtw:function(){return dtwBtw();},perfNow:function(){return perfNow();},vmc:function(){return vmcNow();},
   setCD:function(sec){setCD(sec);$("cdStop").textContent="Stop";},
@@ -2516,7 +2525,7 @@ function gribSet(buf,name,keep){
   if(!w){var why=r.skipped.length?" ("+r.skipped.slice(0,2).map(function(x){return (x.param?x.param+": ":"")+x.reason;}).join("; ")+")":"";throw new Error("no 10 m wind found in this file"+why);}
   gribWind=w;gribName=name;gribT=null;
   if(keep)idb("readwrite",function(st){return st.put({name:name,buf:buf,t:Date.now()},"grib");}).catch(function(){gribMsg("Loaded, but it could not be kept for offline use on this device.","err");});
-  gribUi();return {skipped:r.skipped,ignored:w.ignored};
+  gribUi();if(routeShow)setTimeout(function(){routeCompute();drawMap();},0);return {skipped:r.skipped,ignored:w.ignored};
 }
 function gribInfo(){
   if(!gribWind)return null;var b=MRGrib.bounds(gribWind),n=gribWind.times.length;
@@ -2567,6 +2576,47 @@ $("gribBtn").onclick=function(){gribShow=!gribShow;save("gribOn",gribShow);gribU
 $("gribT").oninput=function(){gribT=+this.value;if(Math.abs(gribT-Date.now())<600000)gribT=null;gribUi();drawMap();};
 setInterval(function(){if(gribWind){try{if($("gribBar").hidden===false&&gribT==null)gribUi();}catch(e){}}},60000);
 window.addEventListener("load",function(){if(window.MRGrib)idb("readonly",function(st){return st.get("grib");}).then(function(r){if(r&&r.buf){try{gribSet(r.buf,r.name,false);}catch(e){gribMsg("The kept forecast could not be read: "+e.message,"err");}}}).catch(function(){});});   // the module scripts load after this one
+/* ---------- routing (routing.js): fastest route to the active mark, polar + tack cost + forecast wind ---------- */
+var routeShow=false,routeRes=null,routeTimer=0;
+function rtMsg(t,c){var m=$("rtMsg");if(m){m.textContent=t;m.className="msg "+(c||"");}}
+function routeInputs(){
+  var mk=markPos();if(!window.MRRouting)return {err:"The routing module is not loaded."};
+  if(!mk)return {err:"No active mark: set a course first."};if(!fin(S.lat))return {err:"No position yet."};
+  var bd=bearDist(S.lat,S.lon,mk.lat,mk.lon),tws=S.tws,twd=twdMean(60);if(!fin(twd))twd=S.twd;
+  var hasG=!!gribWind,measured=fin(twd)&&fin(tws),t0=Date.now();
+  if(!hasG&&!measured)return {err:"No wind: load a GRIB or wait for the instruments."};
+  var wind=function(t,la,lo){var f=hasG?MRGrib.sample(gribWind,la,lo,t):null;if(f)return {tws_kn:f.tws_kn,twd_deg:f.twd_deg};return measured&&(!hasG||t-t0<600000)?{tws_kn:tws,twd_deg:twd}:null;};
+  var stepMin=Math.max(1,Math.min(15,Math.round(bd.d/8*60/40)));
+  return {start:{lat:S.lat,lon:S.lon},dest:{lat:mk.lat,lon:mk.lon},t0:t0,wind:wind,polar:polarBsp,tackSec:tackCost(tws),stepMin:stepMin,headingStep:5,maxHours:Math.max(2,Math.min(48,bd.d/2+4)),arriveNm:Math.max(0.03,Math.min(0.2,bd.d/100)),
+    src:hasG?"forecast (GRIB) with the measured wind for the first 10 min":"measured wind held constant",distNm:bd.d};
+}
+function routeCompute(){
+  var o=routeInputs();if(o.err){routeRes=null;rtMsg(o.err,"err");return null;}
+  var r=MRRouting.route(o);r.src=o.src;r.t0=o.t0;routeRes=r;
+  var f=function(t){return new Date(t).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});};
+  rtMsg(r.ok?"Route "+r.directNm.toFixed(1)+" nm direct, "+r.sailedNm.toFixed(1)+" nm sailed, "+r.tacks+" tack/gybe"+(r.tacks===1?"":"s")+", arrival "+f(r.eta)+" ("+(r.hours<1?Math.round(r.hours*60)+" min":r.hours.toFixed(1)+" h")+"). Wind: "+o.src+".":"No route: "+r.reason+".",r.ok?"ok":"err");
+  return r;
+}
+function drawRoute(ctx,col,d,sc,nm){
+  var p=routeRes.path;ctx.save();ctx.strokeStyle=col("--accent");ctx.lineWidth=3*d;ctx.setLineDash([8*d,5*d]);ctx.globalAlpha=0.9;ctx.beginPath();
+  p.forEach(function(q,i){var a=sc(nm(q.lat,q.lon));if(i)ctx.lineTo(a[0],a[1]);else ctx.moveTo(a[0],a[1]);});ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle=col("--accent");p.forEach(function(q,i){if(i&&i<p.length-1&&fin(p[i-1].twa)&&Math.sign(q.twa)!==Math.sign(p[i-1].twa)){var a=sc(nm(q.lat,q.lon));ctx.beginPath();ctx.arc(a[0],a[1],4*d,0,6.2832);ctx.fill();}});
+  var e=sc(nm(p[p.length-1].lat,p[p.length-1].lon));ctx.font="700 "+(13*d)+"px "+getComputedStyle(document.documentElement).getPropertyValue("--digits");ctx.textAlign="left";ctx.lineWidth=4*d;ctx.strokeStyle=col("--face");
+  var t=new Date(routeRes.eta).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})+" ("+(routeRes.hours<1?Math.round(routeRes.hours*60)+"′":routeRes.hours.toFixed(1)+"h")+")";
+  ctx.strokeText("ETA "+t,e[0]+10*d,e[1]-10*d);ctx.fillStyle=col("--accent");ctx.fillText("ETA "+t,e[0]+10*d,e[1]-10*d);ctx.restore();
+}
+function routeOn(on){routeShow=on;$("routeBtn").setAttribute("aria-pressed",on);clearInterval(routeTimer);if(on){routeCompute();routeTimer=setInterval(function(){if(routeShow){routeCompute();drawMap();}},120000);}drawMap();}
+$("routeBtn").onclick=function(){routeOn(!routeShow);};
+$("rtEns").onclick=function(){
+  var o=routeInputs();if(o.err){rtMsg(o.err,"err");return;}
+  var e=MRRouting.ensemble(Object.assign({},o,{dirErrors:[-15,0,15],speedFactors:[0.9,1,1.1]})),s=e.summary;
+  rtMsg(s.n?"Ensemble of "+s.of+" wind variations (direction ±15°, speed ±10%): arrival in "+s.min.toFixed(2)+" to "+s.max.toFixed(2)+" h, middle "+s.median.toFixed(2)+" h (10% of runs below "+s.p10.toFixed(2)+", 90% below "+s.p90.toFixed(2)+"). Wind: "+o.src+".":"No run reached the mark.",s.n?"ok":"err");
+};
+$("rtDep").onclick=function(){
+  var o=routeInputs();if(o.err){rtMsg(o.err,"err");return;}if(!gribWind){rtMsg("Departure planning needs a forecast: load a GRIB first.","err");return;}
+  var r=MRRouting.departureScan(Object.assign({},o,{everyMin:60,count:12,tackSec:o.tackSec})),f=function(t){return new Date(t).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});};
+  rtMsg(r.best?"Best departure "+f(r.best.t0)+", arrival "+f(r.best.eta)+" ("+r.best.hours.toFixed(1)+" h). All: "+r.options.map(function(x){return f(x.t0)+(x.ok?" → "+x.hours.toFixed(1)+" h":" → no route");}).join("; ")+".":"No departure in the next 12 h reaches the mark with this forecast.",r.best?"ok":"err");
+};
 /* ---------- race documents (racedocs.js): read, confirm, keep offline ---------- */
 var rdDocs=load("racedocs",[]),rdCur=null;
 function rdMsg(t,c){var m=$("rdMsg");m.textContent=t;m.className="msg "+(c||"");}
@@ -4441,6 +4491,7 @@ function helmSet(on){helm.on=on;helm.to=null;helm.rud=0;helm.hold=NaN;var b=docu
 <script src="polarlearn.js"></script>
 <script src="speedcal.js"></script>
 <script src="grib.js"></script>
+<script src="routing.js"></script>
 <script src="marksimport.js"></script>
 <script src="racedocs.js"></script>
 <script src="target-tack.js"></script>

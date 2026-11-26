@@ -4,6 +4,7 @@
 //   luff loss     seconds lost luffing up to close-hauled, against the start model (arc at the speed you had,
 //                 then speed decaying to target in 8 s): the same model that times "Bolina, ora!"
 //   tack loss     seconds lost tacking, against the start model (arc, then close-hauled at target speed)
+//   tack loss m   the same loss as metres to windward; speed drop = entry BSP minus the lowest BSP; both also by TWS band
 //   recovery      seconds after the turn until 95% of target speed
 //   polar %       close-hauled speed against the polar target, in steady sailing
 //   TWD by tack   the true wind direction seen on starboard minus port, from steady beats one after the other:
@@ -13,7 +14,7 @@
 // Polar: {bsp(twa, tws), up(tws) -> {twa, bsp}}. Works in the page (window.MRCalib) and in Node (module.exports).
 (function (root) {
   "use strict";
-  var D2R = Math.PI / 180, R2D = 180 / Math.PI, KN = 1852 / 3600;
+  var D2R = Math.PI / 180, R2D = 180 / Math.PI, KN = 1852 / 3600, BANDS = [[0, 8], [8, 12], [12, 16], [16, 99]];
   function fin(v) { return typeof v === "number" && isFinite(v); }
   function wrap180(a) { return ((a % 360) + 540) % 360 - 180; }
   function wrap360(a) { return ((a % 360) + 360) % 360; }
@@ -91,6 +92,8 @@
         model += v * KN * Math.cos((h - twd) * D2R);
       }
       m.loss = Math.round((model - actual) / (vt * KN * Math.cos(up.twa * D2R)) * 10) / 10;
+      m.lossM = Math.round(model - actual);                       // metres lost to windward against the model (the same measure, as distance)
+      var vs = slice(r, a, T).map(function (p) { return p.bsp; }); m.vmin = Math.round(Math.min.apply(null, vs) * 10) / 10; m.vdrop = Math.round((m.v0 - m.vmin) * 10) / 10;   // lowest BSP and the drop from entry speed
       // recovery: seconds after the turn until 95% of target
       for (var k = b; k < Math.min(r.length, b + 90); k++) if (r[k] && r[k].bsp >= 0.95 * vt) { m.rec = k - b; break; }
       if (m.rec == null && r.length > b + 90) m.rec = 90;      // not back to speed in 90 s (unknown if the data ends)
@@ -130,6 +133,12 @@
       var s = bt[i].side === "stbd" ? bt[i] : bt[i - 1], p = bt[i].side === "stbd" ? bt[i - 1] : bt[i];
       pairs.push(wrap180(s.twd - p.twd));
     }
+    // by wind band: tack loss in seconds and metres, with the count (bands in BANDS, TWS kn)
+    var bands = BANDS.map(function (bd) {
+      var t = ok.filter(function (m) { return m.type === "tack" && fin(m.loss) && fin(m.tws) && m.tws >= bd[0] && m.tws < bd[1]; });
+      return { lo: bd[0], hi: bd[1], n: t.length, tackLoss: median(t.map(function (m) { return m.loss; })), tackLossM: median(t.filter(function (m) { return fin(m.lossM); }).map(function (m) { return m.lossM; })),
+        vdrop: median(t.filter(function (m) { return fin(m.vdrop); }).map(function (m) { return m.vdrop; })) };
+    });
     var r1 = function (v) { return fin(v) ? Math.round(v * 10) / 10 : NaN; };
     return {
       rate: r1(median(rateAll)), nRate: rateAll.length,
@@ -138,6 +147,8 @@
       tackLoss: r1(median(pick("tack", "loss"))), nTack: pick("tack", "loss").length,
       rec: r1(median(pick("tack", "rec"))),            // after a luff the boat is usually still above target
       pct: r1(median(bt.map(function (b) { return b.pct * 100; }))), nBeat: bt.length,
+      tackLossM: r1(median(pick("tack", "lossM"))), nTackM: pick("tack", "lossM").length, vdrop: r1(median(pick("tack", "vdrop"))),
+      bands: bands.map(function (b) { return { lo: b.lo, hi: b.hi, n: b.n, tackLoss: r1(b.tackLoss), tackLossM: r1(b.tackLossM), vdrop: r1(b.vdrop) }; }),
       twdTack: r1(median(pairs)), nPairs: pairs.length
     };
   }

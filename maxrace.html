@@ -1488,14 +1488,20 @@ function layInfo(){
   var here=hitLay(M,fin(S.cog)?S.cog:S.hdg,side>0?dirs.p:dirs.s);
   var there=hitLay(M,wrap360(S.twd+side*g.twa),side>0?dirs.s:dirs.p);
   if(here){here.spd=S.sog;here.mode="this tack";}
-  if(there){there.spd=g.bsp;there.mode="after tack";}
+  if(there){there.spd=g.bsp;there.mode="after tack";there.pen=up?tackCost(S.tws):0;}   // the tack costs seconds: added to the time of the layline after tacking
   var o={};o[side>0?"port":"stbd"]=here;o[side>0?"stbd":"port"]=there;return o;
+}
+// seconds a tack costs at this TWS: the median of the measured tacks in the same wind band (3 or more), else the profile value
+function tackCost(tws){
+  var m=calSummary(),b=(m.bands||[]).filter(function(x){return fin(tws)&&tws>=x.lo&&tws<x.hi;})[0];
+  if(b&&b.n>=3&&fin(b.tackLoss))return Math.max(0,b.tackLoss);
+  return fin(manv.tack)?Math.max(0,manv.tack):0;
 }
 function layText(x){
   if(!x)return {t:"--",d:"no mark"};
   if(x.past)return {t:"PAST",d:"overstood"};
   if(!x.hit)return {t:"--",d:"not converging"};
-  return {t:fin(x.spd)&&x.spd>0.3?fmtTime(x.d/x.spd*3600):"--",d:(x.d<10?x.d.toFixed(2):x.d.toFixed(1))+" nm",m:x.mode};
+  return {t:fin(x.spd)&&x.spd>0.3?fmtTime(x.d/x.spd*3600+(x.pen||0)):"--",d:(x.d<10?x.d.toFixed(2):x.d.toFixed(1))+" nm",m:x.mode};
 }
 function renderMapNums(){
   $("m-bsp").textContent=f1(S.bsp);perf("tm-bsp",perfNow());
@@ -4108,6 +4114,8 @@ function renderCalib(){
   if(m.nRate)parts.push("Turn rate <b>"+f(fin(m.luffRate)?m.luffRate:m.rate)+"°/s</b> ("+m.nRate+" turns)");
   if(m.nLuff)parts.push("Luff loss <b>"+f(m.luffLoss)+" s</b> ("+m.nLuff+")");
   if(m.nTack)parts.push("Tack loss <b>"+f(m.tackLoss)+" s</b> ("+m.nTack+")");
+  if(m.nTackM&&fin(m.tackLossM))parts.push("Tack costs <b>"+f(m.tackLossM,0)+" m</b> to windward"+(fin(m.vdrop)?", speed drops <b>"+f(m.vdrop)+" kn</b>":""));
+  (m.bands||[]).forEach(function(b){if(b.n)parts.push("TWS "+b.lo+(b.hi>=99?"+":"–"+b.hi)+" kn: tack <b>"+f(b.tackLoss)+" s / "+f(b.tackLossM,0)+" m</b> ("+b.n+")");});
   if(fin(m.rec))parts.push("Back to 95% target after a tack in <b>"+f(m.rec,0)+" s</b>");
   if(m.nBeat)parts.push("Close-hauled <b>"+f(m.pct,0)+"%</b> of polar ("+m.nBeat+" beats)");
   if(m.nPairs)parts.push("TWD starboard − port <b>"+(m.twdTack>0?"+":"")+f(m.twdTack,0)+"°</b> ("+m.nPairs+" pairs)"+(Math.abs(m.twdTack)>=4&&m.nPairs>=2?" ⚠ check compass, AWA and leeway calibration":""));

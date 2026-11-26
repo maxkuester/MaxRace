@@ -46,15 +46,15 @@ BSP), recovery time to ~95% of target, distance lost vs sailing on (metres). Sto
 
 - [x] Automatic tack detection — calib.js (tack, gybe, luff, bear-away)
 - [x] Turn rate (derived from heading)
-- [~] Speed loss and recovery — seconds lost against the model and recovery to 95%; no minimum-BSP speed loss
-- [ ] Distance lost per manoeuvre in metres
-- [ ] Results averaged by wind band
+- [x] Speed loss and recovery — calib.js `measure()`: seconds lost (`loss`), lowest BSP and drop from entry (`vmin`, `vdrop`), recovery to 95% (`rec`)
+- [x] Distance lost per manoeuvre in metres — calib.js `measure()` `lossM` (tacks and luffs ending close-hauled; gybes not)
+- [x] Results averaged by wind band — calib.js `summarize()` `bands` (TWS 0–8, 8–12, 12–16, 16+ kn), shown in the calibration panel
 - [~] Gybes measured as well as detected
 
 ## 5. Using the models in race logic
 
 - [~] Race calculations read the learned model — start ("Bolina, ora!") and "se viro?" use the calibrated turn rate and tack loss; laylines do not
-- [ ] Manoeuvre cost feeds into layline and routing decisions
+- [~] Manoeuvre cost feeds into layline and routing decisions — layline "after tack" time includes `tackCost(tws)` (band median, else profile value); no routing yet
 - [x] Tactical call "tack now?" includes the tack cost — tackCross() in maxrace.html, voice "se viro?"
 - [ ] Opponent speed and angles compared against our polars
 

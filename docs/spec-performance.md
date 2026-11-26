@@ -112,7 +112,7 @@ One-off: masthead alignment (AWA offset), compass deviation table. Daily: BSP ca
 starboard factors), compass offset (HDG vs COG in slack water), TWD stability through tacks; accept/reject, history,
 flag uncalibrated data, drift detection. Experiment: wind shear estimated from tack-to-tack asymmetry, validated on logs.
 
-- [~] Guided trials workflow — voice-guided routine for turn rate, tack and luff loss, TWD by tack (calib.js, voice.js)
+- [~] Guided trials workflow — voice-guided routine for turn rate, tack and luff loss, TWD by tack (calib.js, voice.js); speed and compass routine (voice.js `speedCalibrate()`: two reciprocal pairs, 45 s each, says the factor and offset, "applica velocità"); tested with a simulated heading and clock, not on the water
 - [x] BSP and compass calibration calculations — speedcal.js, live runs kept in calib.runs, Settings > Speed and compass; synthetic test and CSV check only; no port/starboard split
 - [x] Accept/reject and apply corrections — manoeuvre values (Apply) and BSP factor / heading offset (Apply correction, refused unless usable; corr applied in cB()/cH() where NMEA and Signal K values come in, per boat profile)
 - [ ] Calibration history and data flagging

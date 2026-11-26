@@ -88,6 +88,8 @@
   function answer(q) {
     var t = q.toLowerCase();
     if (/\b(stop|basta|zitto|silenzio|ferma)\b/.test(t)) { stopWatch(); hush(); if (st.cal) { clearInterval(st.cal.tick); st.cal = null; } say("Ok.", { flush: true }); return; }
+    if (/(appl|salva|usa)\w*\s+(la\s+|le\s+)?(velocit|correzion|bussola)/.test(t)) return speedApplyV();
+    if (/(calibr|tarat|tarar)\w*.*(velocit|log\b|bussola|opposte|reciproc)|(velocit|bussola).*(calibr|tarat|tarar)/.test(t)) return /appl|salva|usa/.test(t) ? speedApplyV() : speedCalibrate();
     if (/ping|pinga|pingo|pinghiamo/.test(t)) return pingLine(/pin\b|boa|sinistra|pin$/.test(t.replace(/ping[a-z]*/g, "")) ? "pin" : "boat");
     if (/se vir|posso virare|possiamo virare|virando|viro e pass|se cambio mure|se cambiamo mure|virata pass/.test(t)) return tackAsk();
     if (/incroc|passo davanti|passiamo davanti|passo dietro|chi passa/.test(t)) return crossing(/sopra|sopravento/.test(t) ? "up" : /sotto|sottovento/.test(t) ? "down" : "all", true);
@@ -407,6 +409,53 @@
     var txt = parts.join(", ") || "non ho misurato abbastanza";
     say("Calibrazione finita. " + txt.charAt(0).toUpperCase() + txt.slice(1) + ". Di' applica calibrazione per usarla in partenza.");
     st.calAsk = Date.now(); st.cal = null; state();
+  }
+  // guided speed and compass calibration: steady on one course, then the opposite one, twice. The page pairs the runs (speedcal.js).
+  function speedCalibrate() {
+    var m = M(); if (!m || !m.speedCal) return;
+    if (st.cal) { calEnd("Calibrazione interrotta."); return; }
+    var c = st.cal = { step: 0, since: 0, t0: Date.now(), ref: NaN, started: Date.now() }, HOLD = 45;
+    var steps = [
+      { say: "Calibrazione velocità. Tieni una rotta costante per quarantacinque secondi.", rel: 0 },
+      { say: "Ora la rotta opposta: gira di centottanta gradi e tieni costante quarantacinque secondi.", rel: 180 },
+      { say: "Di nuovo la prima rotta, quarantacinque secondi.", rel: 0 },
+      { say: "E ancora la rotta opposta, quarantacinque secondi.", rel: 180 }
+    ];
+    function say1() { c.since = 0; c.ref = NaN; c.started = Date.now(); say(steps[c.step].say, { flush: true }); }
+    function finish() {
+      clearInterval(c.tick);
+      // the page closes a run a few seconds after it ends: wait for it, then read the result
+      setTimeout(function () {
+        var s = M().speedCal(), f2 = function (v) { return (Math.round(v * 100) / 100).toString().replace(".", ","); };
+        if (!s || !(s.n >= 1)) say("Calibrazione finita, ma non ho trovato coppie di rotte opposte. Riprova tenendo la rotta più costante.");
+        else say("Fattore velocità " + f2(s.factor) + ", bussola " + (s.offset > 0 ? "più " : "meno ") + f2(Math.abs(s.offset)) + " gradi, da " + s.n + (s.n === 1 ? " coppia" : " coppie") + ". " +
+          (s.ok ? "Risultato buono. Di' applica velocità per usarlo." : "Non è ancora abbastanza sicuro: non lo applico."));
+        st.cal = null; state();
+      }, 12000);
+    }
+    c.tick = setInterval(function () {
+      if (!st.cal) return;
+      var S = M().own(), p = steps[c.step]; if (!p) return;
+      if (Date.now() - c.started > 180000) { say("Salto questo passo."); c.step++; if (c.step >= steps.length) finish(); else say1(); return; }
+      if (!fin(S.hdg) || !(S.sog >= 3)) { c.since = 0; return; }
+      if (!fin(c.ref)) {
+        // first step: any steady course; the others: the first course turned by 180 degrees (or the same again)
+        if (c.step === 0) c.ref = S.hdg;
+        else { var want = (c.base + p.rel) % 360; if (Math.abs(wrap180(S.hdg - want)) <= 20) c.ref = S.hdg; else { c.since = 0; return; } }
+      }
+      if (Math.abs(wrap180(S.hdg - c.ref)) > 4) { c.since = 0; c.ref = NaN; if (c.step === 0) c.ref = S.hdg; return; }
+      c.since++;
+      if (c.since >= HOLD) {
+        if (c.step === 0) c.base = c.ref;
+        c.step++; if (c.step >= steps.length) finish(); else say1();
+      }
+    }, 1000);
+    say1(); state();
+  }
+  function speedApplyV() {
+    var m = M(); if (!m || !m.speedApply) return;
+    var why = m.speedApply();
+    say(why ? "Non applico: " + (/too few|scattered/.test(why) ? "coppie poche o troppo disperse." : /no reciprocal/.test(why) ? "non ho misure." : "i valori sono troppo fuori, controlla gli strumenti.") : "Correzione applicata a velocità e bussola.");
   }
   function calApplyV() {
     var d = M().calApply(); if (st.cal) { clearInterval(st.cal.tick); st.cal = null; }

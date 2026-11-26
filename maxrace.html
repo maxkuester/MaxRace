@@ -2176,7 +2176,7 @@ window.MRT={own:function(){return S;},targets:targetsIn,nat:nat,native:NATIVE,
   startInfo:function(){return startInfo();},cdRem:function(){return cdRem(Date.now());},ping:function(w){ping(w);},
   layInfo:function(){return layInfo();},dtwBtw:function(){return dtwBtw();},perfNow:function(){return perfNow();},vmc:function(){return vmcNow();},
   setCD:function(sec){setCD(sec);$("cdStop").textContent="Stop";},
-  calib:function(){return {sum:calSummary(),store:calStore(),sim:source==="sim"};},calOn:function(f){calListeners.push(f);},calApply:function(){return calApply();},
+  calib:function(){return {sum:calSummary(),store:calStore(),sim:source==="sim"};},calOn:function(f){calListeners.push(f);},speedCal:function(){return speedSummary().summary;},speedApply:function(){return speedApply();},calApply:function(){return calApply();},
   twdMean:function(s){return twdMean(s);},tackCross:function(){return tackCross();},fleetBoats:function(){return fleetBoats();},entries:function(){return entries;},
   cdSync:function(){var r=cdRem(Date.now());if(!cd.run||!fin(r))return NaN;var r2=Math.max(0,Math.round(r/60)*60);cd.end=Date.now()+r2*1000;return r2;}};
 // the Capacitor app sends the same calls as one event: {fn, arg}
@@ -4197,13 +4197,16 @@ function plPolar(){
   return {name:"Learned "+new Date().toISOString().slice(0,10),tws:tws,cols:tws.map(function(w){var c=rows[w].sort(function(a,b){return a.twa-b.twa;});return {a:c.map(function(r){return r.twa;}),v:c.map(function(r){return Math.round(r.bsp*100)/100;})};})};
 }
 function renderSpeedAll(){renderSpeed();plRender();}
-$("spApply").onclick=function(){
-  var r=speedSummary(),m=r.summary;
-  if(!m.n||!m.ok){$("spOut").className="msg err";$("spOut").innerHTML="Not applied: "+(m.n?"too few pairs or too scattered.":"no reciprocal runs measured.")+"<br>"+$("spOut").innerHTML;return;}
-  if(m.factor<0.8||m.factor>1.2||Math.abs(m.offset)>15){$("spOut").className="msg err";$("spOut").innerHTML="Not applied: the values are far out ("+m.factor+", "+m.offset+"°). Check the instruments first.<br>"+$("spOut").innerHTML;return;}
+// returns "" when applied, else the reason (shown in the panel and spoken by the voice)
+function speedApply(){
+  var r=speedSummary(),m=r.summary,why="";
+  if(!m.n||!m.ok)why=m.n?"too few pairs or too scattered":"no reciprocal runs measured";
+  else if(m.factor<0.8||m.factor>1.2||Math.abs(m.offset)>15)why="the values are far out ("+m.factor+", "+m.offset+"°): check the instruments first";
+  if(why){$("spOut").className="msg err";$("spOut").innerHTML="Not applied: "+why+".<br>"+$("spOut").innerHTML;return why;}
   // the measured factor is on the raw values (the buffer takes the old correction out), so it replaces the old one
-  corr={k:m.factor,off:m.offset};if(source!=="sim")save("corr",corr);renderSpeed();
-};
+  corr={k:m.factor,off:m.offset};if(source!=="sim")save("corr",corr);renderSpeed();return "";
+}
+$("spApply").onclick=function(){speedApply();};
 $("spReset").onclick=function(){corr={k:1,off:0};save("corr",corr);renderSpeed();};
 $("plUse").onclick=function(){
   var p=plPolar();if(!p){$("plOut").innerHTML="Not enough learned data yet (need 3 wind speeds with at least one bin of 20 samples).<br>"+$("plOut").innerHTML;return;}

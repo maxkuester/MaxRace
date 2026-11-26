@@ -443,6 +443,7 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
     <div class="spacer"></div>
     <button class="btn racebtn" id="raceBtn" title="Record the race and get the post-race report">Race</button>
     <button class="btn" id="refBtn" title="Lock the current mean TWD as reference for the shift trace">Ref TWD</button>
+    <button class="btn" id="docsBtn" title="Race documents: find the Notice of Race and Sailing Instructions online, or open a file">Docs</button>
     <button class="btn" id="themeBtn">Night</button>
     <button class="btn primary" id="setBtn">Settings</button>
   </header>
@@ -2749,6 +2750,8 @@ $("bdAdd").onclick=function(){
 };
 $("crsBtn").onclick=function(){renderCourse();fillBdFrom();crsMsg("");bdMsg("");$("crsDlg").showModal();};
 $("crsClose").onclick=function(){$("crsDlg").close();};
+// Docs: the Race documents section of Course and marks, opened straight at its event field
+$("docsBtn").onclick=function(){renderCourse();fillBdFrom();crsMsg("");bdMsg("");$("crsDlg").showModal();setTimeout(function(){var e=$("rdEvent");e.scrollIntoView({block:"center"});e.focus();},50);};
 $("openCrs").onclick=function(){$("dlg").close();renderCourse();fillBdFrom();crsMsg("");bdMsg("");$("crsDlg").showModal();};
 renderCourse();
 

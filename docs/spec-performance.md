@@ -86,7 +86,7 @@ the hard-coded commands. Push-to-talk, short spoken answers, low latency, proact
 
 ## 9. Weather data (GRIB)
 
-- [~] GRIB download and parsing — parsing: grib.js (GRIB1 simple packing; GRIB2 lat/lon grid, packing 5.0/5.2/5.3, U/V or direction/speed at 10 m, bitmap); file opened by the user in Settings > Wind forecast. JPEG2000/PNG/CCSDS packing not read (reported), no Gaussian/rotated grids. Tested only on GRIB files built by the test's own encoder (scripts/test-grib.js), never on a real GRIB file. No download: not done
+- [~] GRIB download and parsing — parsing: grib.js (GRIB1 simple packing; GRIB2 lat/lon grid, packing 5.0/5.2/5.3, U/V or direction/speed at 10 m, bitmap), now also read on a real NOAA GFS 0.25° file (26 Nov 2026 06z, 66 messages, no skips; global zonal means physically right: trades, westerlies; regional crop agrees with the global field to 0.013 kn). Download: scripts/fetch-gfs-wind.js (GFS from the public AWS bucket, U/V 10 m only, cut to an area, writes a GRIB2 the app opens); no download inside the app, and nothing from other models (ECMWF, ICON) or Saildocs; JPEG2000/PNG/CCSDS not read; GRIB1 only tested on synthetic files
 - [x] Offline cache — the GRIB file is kept in IndexedDB and reloaded at start (tested: survives a page reload)
 - [x] Map display with time slider — Wind layer on the map (arrows coloured by speed, knots written), slider over the file's times; checked in a headless browser screenshot
 - [~] Forecast vs measured comparison — bias and typical error of direction and speed over the last 30 min at the boat's position (gribCompare()); only the last 30 min, no per-wind-band report

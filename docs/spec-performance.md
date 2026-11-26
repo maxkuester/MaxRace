@@ -22,9 +22,9 @@ Steady-state criteria (tunable): heading change below a threshold over a rolling
 within limits, no tack or gybe in the window, BSP not accelerating significantly.
 
 - [~] Steady-state detector — calib.js: manoeuvre detection and steady beats (≥ 30 s, TWA 25–60°); not for all points of sail
-- [ ] Thresholds configurable, not hard-coded
+- [x] Thresholds configurable, not hard-coded — `DEFAULTS` + options in polarlearn.js `steady()`
 - [~] Manoeuvre periods excluded from polar learning — no polar learning yet
-- [ ] Outliers (sensor spikes, bad wind data) rejected
+- [~] Outliers (sensor spikes, bad wind data) rejected — polarlearn.js `plausible()` (ranges, speed vs reference polar); not wired to live data
 
 ## 3. Learned polars
 
@@ -32,9 +32,9 @@ Polar table: target BSP by TWS and TWA. Bins of 2 kn TWS and 5° TWA; per bin a 
 target plus the sample count; low-confidence bins fall back to the reference polar; optimum upwind and downwind VMG angles
 per TWS; updated after each session, keeping history.
 
-- [ ] Polar table structure (TWS × TWA) learned from data
-- [ ] Percentile-based targets
-- [ ] Sample count and confidence per bin
+- [~] Polar table structure (TWS × TWA) learned from data — polarlearn.js `learn()`/`table()`/`vmgAngles()`, CLI scripts/polar-learn.js; not yet fed from the app's saved races, no UI
+- [x] Percentile-based targets — `table()`, 90th percentile by default, fallback to the reference polar
+- [x] Sample count and confidence per bin — `n`, `conf`, `source` in `table()`
 - [x] Reference polar — ORC certificate PDF, Expedition file or table import
 - [x] Target VMG angles — `targets(tws)` in maxrace.html
 - [x] Live polar % (BSP vs target)
@@ -62,7 +62,7 @@ BSP), recovery time to ~95% of target, distance lost vs sailing on (metres). Sto
 
 - [~] Session replay mode — the app's race log replays through the live parsing
 - [ ] Prediction error report per wind band
-- [ ] Coverage view (TWS/TWA bins with data)
+- [~] Coverage view (TWS/TWA bins with data) — data from polarlearn.js `coverage()`; no screen yet
 
 ## 7. Conversational race assistant
 

@@ -80,7 +80,7 @@ the hard-coded commands. Push-to-talk, short spoken answers, low latency, proact
 
 - [ ] Web search and document download (NoR, SI, amendments)
 - [ ] PDF parsing of NoR and SI
-- [ ] Mark import from GPX/KML/coordinates — start line by coordinates and manual marks exist; no GPX/KML import
+- [x] Mark import from GPX/KML/coordinates — marksimport.js `parse()` + file picker in Course and marks (GPX wpt/rtept, KML Point/LineString); start line by coordinates and manual marks as before; untested on a real committee file
 - [~] Entry list — pasted or CSV, matched to AIS and camera targets
 - [ ] User confirmation step and offline cache
 

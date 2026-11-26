@@ -778,6 +778,12 @@ dialog.repdlg{width:min(940px,98vw);height:94vh;max-height:94vh}
       <div class="row" style="margin-top:6px"><button class="btn primary" id="crsPasteBtn">Add these marks</button></div>
     </div>
 
+    <div>
+      <h3>Import marks from a GPX or KML file</h3>
+      <p>Waypoints and route points from GPX, placemarks from KML. Order is the file's order.</p>
+      <div class="row"><input type="file" id="crsFile" accept=".gpx,.kml,application/gpx+xml,application/vnd.google-earth.kml+xml,text/xml"><label><input type="checkbox" id="crsFileSeq" checked> add to sequence</label></div>
+    </div>
+
     <div class="row">
       <button class="btn" id="crsDemo">Demo course around the boat</button>
       <button class="btn" id="crsClear">Clear course</button>
@@ -2428,6 +2434,19 @@ $("crsPasteBtn").onclick=function(){
   saveCourse();renderCourse();
   crsMsg(ok+" mark"+(ok===1?"":"s")+" added"+(bad.length?". Not recognised: line "+bad.join(", "):"."),bad.length?"err":"ok");
   if(!bad.length)$("crsPaste").value="";
+};
+$("crsFile").onchange=function(e){
+  var f=e.target.files&&e.target.files[0];if(!f)return;
+  var rd=new FileReader();
+  rd.onload=function(){
+    var r=window.MRMarks?MRMarks.parse(String(rd.result)):{format:"",marks:[],skipped:0},seq=$("crsFileSeq").checked;
+    if(!r.marks.length){crsMsg("No marks found in "+f.name+(r.format?"":" (not a GPX or KML file)")+".","err");}
+    else{r.marks.forEach(function(p){addMark(p.name,p.lat,p.lon,seq);});saveCourse();renderCourse();
+      crsMsg(r.marks.length+" mark"+(r.marks.length===1?"":"s")+" imported from "+f.name+(r.skipped?"; "+r.skipped+" skipped (bad coordinates)":"")+".","ok");}
+    e.target.value="";
+  };
+  rd.onerror=function(){crsMsg("Cannot read "+f.name+".","err");};
+  rd.readAsText(f);
 };
 $("crsClear").onclick=function(){if(!confirm("Clear all marks and the sequence?"))return;course.marks=[];course.seq=[];course.idx=0;saveCourse();renderCourse();};
 $("crsDemo").onclick=function(){
@@ -4177,6 +4196,7 @@ function helmSet(on){helm.on=on;helm.to=null;helm.rud=0;helm.hold=NaN;var b=docu
 })();
 </script>
 <script src="calib.js"></script>
+<script src="marksimport.js"></script>
 <script src="target-tack.js"></script>
 <script src="targets.js"></script>
 <script src="voicepack.js"></script>

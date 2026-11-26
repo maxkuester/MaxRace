@@ -13,6 +13,7 @@ fs.copyFileSync(path.join(root, "build", "icon.png"), path.join(out, "icon.png")
 fs.copyFileSync(path.join(root, "targets.js"), path.join(out, "targets.js"));
 fs.copyFileSync(path.join(root, "voice.js"), path.join(out, "voice.js"));
 fs.copyFileSync(path.join(root, "calib.js"), path.join(out, "calib.js"));
+fs.copyFileSync(path.join(root, "marksimport.js"), path.join(out, "marksimport.js"));
 fs.copyFileSync(path.join(root, "voicepack.js"), path.join(out, "voicepack.js"));
 // the tactician's own voice, made on this Mac (scripts/voicepack-gen.py); not in git, so CI builds go without it
 const pack = path.join(root, "voicepack");

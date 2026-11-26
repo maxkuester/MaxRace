@@ -34,6 +34,7 @@
       "targets.js",
       "voice.js",
       "calib.js",
+      "marksimport.js",
       "voicepack.js",
       "voicepack/**/*",
       "scripts/target-tack.js",

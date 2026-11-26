@@ -113,7 +113,7 @@ starboard factors), compass offset (HDG vs COG in slack water), TWD stability th
 flag uncalibrated data, drift detection. Experiment: wind shear estimated from tack-to-tack asymmetry, validated on logs.
 
 - [~] Guided trials workflow — voice-guided routine for turn rate, tack and luff loss, TWD by tack (calib.js, voice.js)
-- [ ] BSP and compass calibration calculations
+- [~] BSP and compass calibration calculations — speedcal.js (reciprocal runs: BSP factor, HDG-vs-COG offset, current along track), CLI scripts/speedcal-log.js; synthetic test only, not in the app, no port/starboard split, nothing applied to the data
 - [~] Accept/reject and apply corrections — "Apply" for manoeuvre values only
 - [ ] Calibration history and data flagging
 - [~] Drift detection — TWD-by-tack warning during the race
